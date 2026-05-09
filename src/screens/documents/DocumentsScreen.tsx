@@ -32,14 +32,19 @@ import {
   DocumentStatus,
   DocumentType,
   getDocumentsForBusiness,
+  getJurisdictions,
+  getTruckPermitById,
   getTruckPermits,
+  JurisdictionRow,
   textOrNull,
   TruckPermitRow,
+  TruckPermitStatus,
   TruckRow,
   updateDocument,
+  updateTruckPermit,
 } from '../../lib/db';
 import { formatRelatedPermitLabel } from '../../lib/permitLabels';
-import { parseDocumentText, type ParsedDocumentData } from '../../lib/documentParser';
+import { parseDocumentText, type ParsedDocumentResult } from '../../lib/documentParser';
 import { extractTextFromImage } from '../../lib/ocr';
 import { deleteDocumentFile, getDocumentSignedUrl, uploadDocumentFile } from '../../lib/storage';
 
@@ -78,6 +83,7 @@ type FormState = {
   document_type: DocumentType;
   truck_id: string | null;
   permit_id: string | null;
+  jurisdiction_id: string | null;
   permit_number: string;
   issued_date: string;
   expiration_date: string;
@@ -86,9 +92,10 @@ type FormState = {
 
 const EMPTY_FORM: FormState = {
   name: '',
-  document_type: 'business_license',
+  document_type: 'other',
   truck_id: null,
   permit_id: null,
+  jurisdiction_id: null,
   permit_number: '',
   issued_date: '',
   expiration_date: '',
@@ -109,7 +116,24 @@ function statusFromExpiration(expirationDate: string | null): DocumentStatus {
 }
 
 function territoryForDocument(doc: DocumentRow): string {
-  return doc.truck_permits?.permit_requirements?.jurisdictions?.name ?? 'Unknown territory';
+  return (
+    doc.jurisdictions?.name ??
+    doc.truck_permits?.permit_requirements?.jurisdictions?.name ??
+    'Unknown territory'
+  );
+}
+
+function truckPermitStatusFromExpiration(expirationDate: string | null): TruckPermitStatus {
+  if (!expirationDate) return 'current';
+  const date = new Date(`${expirationDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return 'current';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffMs = date.getTime() - today.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return 'expired';
+  if (diffDays <= 30) return 'expiring_soon';
+  return 'current';
 }
 
 /** Keeps the oldest row per permit_requirement_id (getTruckPermits orders by created_at ascending). */
@@ -142,13 +166,17 @@ export function DocumentsScreen() {
   const [selectedFile, setSelectedFile] = useState<SelectedLocalFile | null>(null);
   const [selectedTruckFilter, setSelectedTruckFilter] = useState<string>('all');
   const [selectedTerritoryFilter, setSelectedTerritoryFilter] = useState<string>('all');
-  const [autoDetected, setAutoDetected] = useState<ParsedDocumentData | null>(null);
+  const [autoDetected, setAutoDetected] = useState<ParsedDocumentResult | null>(null);
   const [showDetectedText, setShowDetectedText] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [knownJurisdictions, setKnownJurisdictions] = useState<JurisdictionRow[]>([]);
+  const [allBusinessPermits, setAllBusinessPermits] = useState<TruckPermitRow[]>([]);
+  /** Add flow: upload picker first, then detail form after scan or manual entry. */
+  const [createStep, setCreateStep] = useState<'upload' | 'form'>('upload');
 
-  const [picker, setPicker] = useState<null | 'documentType' | 'truck' | 'permit'>(null);
+  const [picker, setPicker] = useState<null | 'documentType' | 'truck' | 'permit' | 'jurisdiction'>(null);
   const [permitSearch, setPermitSearch] = useState('');
 
   const dedupedPermitsForTruck = useMemo(
@@ -188,6 +216,44 @@ export function DocumentsScreen() {
     const truck = trucks.find((t) => t.id === form.truck_id);
     return truck ? truckSelectLabel(truck) : 'Unknown truck';
   }, [form.truck_id, trucks]);
+
+  const jurisdictionDisplayValue = useMemo(() => {
+    if (!form.jurisdiction_id) return 'Not set';
+    const j = knownJurisdictions.find((x) => x.id === form.jurisdiction_id);
+    return j?.name ?? 'Unknown';
+  }, [form.jurisdiction_id, knownJurisdictions]);
+
+  useEffect(() => {
+    if (!business?.id) {
+      setKnownJurisdictions([]);
+      setAllBusinessPermits([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const jRes = await getJurisdictions();
+      if (!cancelled && !jRes.error) {
+        setKnownJurisdictions(jRes.data);
+      }
+      const collected: TruckPermitRow[] = [];
+      for (const t of trucks) {
+        const cleanupRes = await cleanupDuplicateTruckPermitsForTruck(t.id);
+        if (!cancelled && cleanupRes.error) {
+          console.warn('cleanupDuplicateTruckPermitsForTruck:', cleanupRes.error.message);
+        }
+        const tpRes = await getTruckPermits(t.id);
+        if (!tpRes.error) {
+          collected.push(...tpRes.data);
+        }
+      }
+      if (!cancelled) {
+        setAllBusinessPermits(collected);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [business?.id, trucks]);
 
   async function refreshDocuments() {
     if (!business?.id) {
@@ -278,17 +344,26 @@ export function DocumentsScreen() {
     setErrorMessage(null);
     setPicker(null);
     setPermitSearch('');
+    setCreateStep('upload');
+    setShowDetectedText(false);
   }
 
   function startCreate() {
-    setForm({
-      ...EMPTY_FORM,
-      truck_id: trucks[0]?.id ?? null,
-    });
+    setForm(EMPTY_FORM);
     setEditingDocument(null);
     setShowForm(true);
+    setCreateStep('upload');
     setSelectedFile(null);
     setAutoDetected(null);
+    setErrorMessage(null);
+    setShowDetectedText(false);
+  }
+
+  function enterManualMode() {
+    setForm(EMPTY_FORM);
+    setAutoDetected(null);
+    setCreateStep('form');
+    setShowDetectedText(false);
     setErrorMessage(null);
   }
 
@@ -298,6 +373,7 @@ export function DocumentsScreen() {
       document_type: document.document_type,
       truck_id: document.truck_id,
       permit_id: document.permit_id,
+      jurisdiction_id: document.jurisdiction_id,
       permit_number: document.permit_number ?? '',
       issued_date: document.issued_date ?? '',
       expiration_date: document.expiration_date ?? '',
@@ -305,25 +381,29 @@ export function DocumentsScreen() {
     });
     setEditingDocument(document);
     setShowForm(true);
+    setCreateStep('form');
     setSelectedFile(null);
     setAutoDetected(null);
     setErrorMessage(null);
+    setShowDetectedText(false);
   }
 
-  function applyAutoDetected(result: ParsedDocumentData) {
+  function applyParsedResult(result: ParsedDocumentResult) {
     setAutoDetected(result);
     setShowDetectedText(false);
     setForm((prev) => ({
       ...prev,
-      document_type: (result.documentType as DocumentType | undefined) ?? prev.document_type,
+      document_type: (result.documentType as DocumentType | null) ?? prev.document_type,
       name: result.name ?? prev.name,
       permit_number: result.permitNumber ?? prev.permit_number,
       issued_date: result.issuedDate ?? prev.issued_date,
       expiration_date: result.expirationDate ?? prev.expiration_date,
-      notes: result.businessName
-        ? `Auto-detected business: ${result.businessName}. ${prev.notes}`.trim()
-        : prev.notes,
+      jurisdiction_id: result.jurisdictionId ?? prev.jurisdiction_id,
+      truck_id: result.truckId ?? prev.truck_id,
+      permit_id: result.permitId ?? prev.permit_id,
+      notes: result.notes ?? prev.notes,
     }));
+    setCreateStep('form');
   }
 
   function isPdfOrDocument(fileName?: string | null, mimeType?: string | null): boolean {
@@ -334,15 +414,20 @@ export function DocumentsScreen() {
 
   async function scanIfImage(args: { uri: string; fileName?: string | null; mimeType?: string | null }) {
     if (isPdfOrDocument(args.fileName, args.mimeType)) {
-      Alert.alert('PDF auto-scan coming soon', 'Enter details manually for PDF files.');
+      setCreateStep('form');
+      Alert.alert('PDF scanning coming soon', 'PDF scanning coming soon.');
       return;
     }
     setScanning(true);
     try {
       const rawText = await extractTextFromImage(args.uri);
-      if (!rawText) return;
-      const parsed = parseDocumentText(rawText);
-      applyAutoDetected(parsed);
+      if (!rawText.trim()) {
+        setAutoDetected(null);
+        setCreateStep('form');
+        return;
+      }
+      const parsed = parseDocumentText(rawText, knownJurisdictions, trucks, allBusinessPermits);
+      applyParsedResult(parsed);
     } finally {
       setScanning(false);
     }
@@ -437,11 +522,12 @@ export function DocumentsScreen() {
           document_type: form.document_type,
           truck_id: form.truck_id,
           permit_id: form.permit_id,
+          jurisdiction_id: form.jurisdiction_id,
           permit_number: textOrNull(form.permit_number),
           issued_date: form.issued_date.trim() || null,
           expiration_date: expirationValue,
           status,
-          extracted_text: autoDetected?.rawText ?? null,
+          extracted_text: autoDetected?.extractedText ?? null,
           extracted_confidence: autoDetected?.confidence ?? null,
           auto_detected: Boolean(autoDetected),
           notes,
@@ -456,13 +542,14 @@ export function DocumentsScreen() {
           business_id: business.id,
           truck_id: form.truck_id,
           permit_id: form.permit_id,
+          jurisdiction_id: form.jurisdiction_id,
           document_type: form.document_type,
           name: form.name.trim(),
           permit_number: textOrNull(form.permit_number),
           issued_date: form.issued_date.trim() || null,
           expiration_date: expirationValue,
           status,
-          extracted_text: autoDetected?.rawText ?? null,
+          extracted_text: autoDetected?.extractedText ?? null,
           extracted_confidence: autoDetected?.confidence ?? null,
           auto_detected: Boolean(autoDetected),
           notes,
@@ -472,6 +559,30 @@ export function DocumentsScreen() {
           return;
         }
         saved = createRes.data;
+      }
+
+      if (saved && form.permit_id) {
+        const tpBefore = await getTruckPermitById(form.permit_id);
+        if (!tpBefore.error && tpBefore.data) {
+          const linkLine = `Linked document upload: ${saved.name}`;
+          const prevNotes = tpBefore.data.notes?.trim() ?? '';
+          const mergedNotes = prevNotes.includes(linkLine)
+            ? prevNotes
+            : prevNotes
+              ? `${prevNotes}\n${linkLine}`
+              : linkLine;
+          const tpStatus = truckPermitStatusFromExpiration(expirationValue);
+          const tpUpdate = await updateTruckPermit(form.permit_id, {
+            permit_number: textOrNull(form.permit_number),
+            issued_date: form.issued_date.trim() || null,
+            expiration_date: expirationValue,
+            status: tpStatus,
+            notes: mergedNotes,
+          });
+          if (tpUpdate.error) {
+            console.warn('updateTruckPermit:', tpUpdate.error.message);
+          }
+        }
       }
 
       if (selectedFile && saved) {
@@ -608,221 +719,272 @@ export function DocumentsScreen() {
       )}
 
       {showForm ? (
-        <AppCard title={editingDocument ? 'Edit document' : 'Add document'}>
-          {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
-          {autoDetected ? <Text style={styles.autoDetected}>Auto-detected information</Text> : null}
-          {scanning ? <Text style={styles.scanState}>Scanning document…</Text> : null}
+        <>
+          {!editingDocument && createStep === 'upload' ? (
+            <AppCard title="Add document">
+              {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
+              <Text style={styles.uploadLead}>
+                Upload a photo first. We read text on your device and fill the form when possible.
+              </Text>
+              {scanning ? <Text style={styles.scanState}>Scanning document…</Text> : null}
+              <View style={styles.uploadActions}>
+                <AppButton title="Upload file" onPress={() => void pickDocumentFile()} />
+                <AppButton title="Take photo" onPress={() => void takePhoto()} variant="outline" />
+                <AppButton title="Choose photo" onPress={() => void pickFromPhotos()} variant="outline" />
+              </View>
+              <AppButton title="Enter manually" onPress={enterManualMode} variant="outline" />
+            </AppCard>
+          ) : (
+            <AppCard title={editingDocument ? 'Edit document' : 'Review document'}>
+              {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
+              {autoDetected ? (
+                <View style={styles.autoBadgeRow}>
+                  <Text style={styles.autoBadge}>Auto-detected</Text>
+                  <Text style={styles.confidenceLabel}>{Math.round(autoDetected.confidence * 100)}% confidence</Text>
+                </View>
+              ) : null}
+              {scanning ? <Text style={styles.scanState}>Scanning document…</Text> : null}
 
-          <Field label="Name *">
-            <TextInput
-              value={form.name}
-              onChangeText={(value) => setForm((prev) => ({ ...prev, name: value }))}
-              placeholderTextColor={colors.textMuted}
-              style={styles.input}
-            />
-          </Field>
+              <Field label="Name *">
+                <TextInput
+                  value={form.name}
+                  onChangeText={(value) => setForm((prev) => ({ ...prev, name: value }))}
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.input}
+                />
+              </Field>
 
-          <SelectRow
-            label="Document Type"
-            value={DOCUMENT_TYPE_LABELS[form.document_type]}
-            onPress={() => setPicker('documentType')}
-          />
+              <SelectRow
+                label="Document Type"
+                value={DOCUMENT_TYPE_LABELS[form.document_type]}
+                onPress={() => setPicker('documentType')}
+              />
 
-          <SelectRow label="Truck" value={truckDisplayValue} onPress={() => setPicker('truck')} />
+              <SelectRow
+                label="Territory"
+                value={jurisdictionDisplayValue}
+                onPress={() => setPicker('jurisdiction')}
+              />
 
-          <SelectRow
-            label="Related Permit"
-            value={
-              !form.truck_id
-                ? 'Choose a truck first'
-                : selectedPermitRow
-                  ? formatRelatedPermitLabel(selectedPermitRow)
-                  : 'No permit'
-            }
-            onPress={() => {
-              if (!form.truck_id) return;
-              setPermitSearch('');
-              setPicker('permit');
-            }}
-            disabled={!form.truck_id}
-          />
+              <SelectRow label="Truck" value={truckDisplayValue} onPress={() => setPicker('truck')} />
 
-          <Field label="Expiration date (YYYY-MM-DD)">
-            <TextInput
-              value={form.expiration_date}
-              onChangeText={(value) => setForm((prev) => ({ ...prev, expiration_date: value }))}
-              placeholder="2027-05-01"
-              placeholderTextColor={colors.textMuted}
-              style={styles.input}
-            />
-          </Field>
+              <SelectRow
+                label="Related Permit"
+                value={
+                  !form.truck_id
+                    ? 'Choose a truck first'
+                    : selectedPermitRow
+                      ? formatRelatedPermitLabel(selectedPermitRow)
+                      : 'No permit'
+                }
+                onPress={() => {
+                  if (!form.truck_id) return;
+                  setPermitSearch('');
+                  setPicker('permit');
+                }}
+                disabled={!form.truck_id}
+              />
 
-          <Field label="Issued date (YYYY-MM-DD)">
-            <TextInput
-              value={form.issued_date}
-              onChangeText={(value) => setForm((prev) => ({ ...prev, issued_date: value }))}
-              placeholder="2026-01-10"
-              placeholderTextColor={colors.textMuted}
-              style={styles.input}
-            />
-          </Field>
+              <Field label="Expiration date (YYYY-MM-DD)">
+                <TextInput
+                  value={form.expiration_date}
+                  onChangeText={(value) => setForm((prev) => ({ ...prev, expiration_date: value }))}
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.input}
+                />
+              </Field>
 
-          <Field label="Permit / License number">
-            <TextInput
-              value={form.permit_number}
-              onChangeText={(value) => setForm((prev) => ({ ...prev, permit_number: value }))}
-              placeholder="Permit number"
-              placeholderTextColor={colors.textMuted}
-              style={styles.input}
-            />
-          </Field>
+              <Field label="Issued date (YYYY-MM-DD)">
+                <TextInput
+                  value={form.issued_date}
+                  onChangeText={(value) => setForm((prev) => ({ ...prev, issued_date: value }))}
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.input}
+                />
+              </Field>
 
-          <Field label="Notes">
-            <TextInput
-              value={form.notes}
-              onChangeText={(value) => setForm((prev) => ({ ...prev, notes: value }))}
-              placeholderTextColor={colors.textMuted}
-              style={[styles.input, styles.notesInput]}
-              multiline
-            />
-          </Field>
+              <Field label="Permit / License number">
+                <TextInput
+                  value={form.permit_number}
+                  onChangeText={(value) => setForm((prev) => ({ ...prev, permit_number: value }))}
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.input}
+                />
+              </Field>
 
-          <Field label="File">
-            <View style={styles.actionRow}>
-              <AppButton title="Upload" onPress={() => void pickDocumentFile()} variant="outline" />
-              <AppButton title="Take Photo" onPress={() => void takePhoto()} variant="outline" />
-              <AppButton title="Choose Photo" onPress={() => void pickFromPhotos()} variant="outline" />
-              {selectedFile ? (
-                <Text style={styles.fileSelected}>Selected: {selectedFile.fileName}</Text>
-              ) : editingDocument?.file_path ? (
-                <Text style={styles.fileSelected}>File attached</Text>
-              ) : (
-                <Text style={styles.fileSelected}>Not yet uploaded</Text>
-              )}
-            </View>
-          </Field>
+              <Field label="Notes">
+                <TextInput
+                  value={form.notes}
+                  onChangeText={(value) => setForm((prev) => ({ ...prev, notes: value }))}
+                  placeholderTextColor={colors.textMuted}
+                  style={[styles.input, styles.notesInput]}
+                  multiline
+                />
+              </Field>
 
-          {autoDetected ? (
-            <View style={styles.previewCard}>
-              <Text style={styles.previewTitle}>Preview</Text>
-              <Text style={styles.previewLine}>{autoDetected.name ?? form.name ?? 'Document'}</Text>
-              <Text style={styles.previewLine}>Permit #: {autoDetected.permitNumber ?? 'Not detected'}</Text>
-              <Text style={styles.previewLine}>Issued: {autoDetected.issuedDate ?? 'Not detected'}</Text>
-              <Text style={styles.previewLine}>Expires: {autoDetected.expirationDate ?? 'Not detected'}</Text>
-              <Text style={styles.previewLine}>Confidence: {Math.round(autoDetected.confidence * 100)}%</Text>
-              <Pressable onPress={() => setShowDetectedText((prev) => !prev)} style={styles.detectedTextToggle}>
-                <Text style={styles.detectedTextToggleLabel}>Review detected text</Text>
-              </Pressable>
-              {showDetectedText ? <Text style={styles.detectedTextBody}>{autoDetected.rawText}</Text> : null}
-            </View>
-          ) : null}
+              <Field label="File">
+                <View style={styles.actionRow}>
+                  <AppButton title="Upload" onPress={() => void pickDocumentFile()} variant="outline" />
+                  <AppButton title="Take Photo" onPress={() => void takePhoto()} variant="outline" />
+                  <AppButton title="Choose Photo" onPress={() => void pickFromPhotos()} variant="outline" />
+                  {selectedFile ? (
+                    <Text style={styles.fileSelected}>Selected: {selectedFile.fileName}</Text>
+                  ) : editingDocument?.file_path ? (
+                    <Text style={styles.fileSelected}>File attached</Text>
+                  ) : (
+                    <Text style={styles.fileSelected}>Not yet uploaded</Text>
+                  )}
+                </View>
+              </Field>
 
-          <AppButton
-            title={busy ? (selectedFile ? 'Uploading...' : 'Saving...') : 'Save'}
-            onPress={() => void saveDocument()}
-            disabled={busy}
-          />
-
-          <FormPickerModal
-            visible={picker === 'documentType'}
-            title="Document Type"
-            onClose={() => setPicker(null)}
-          >
-            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
-              {DOCUMENT_TYPE_OPTIONS.map((option) => {
-                const selected = form.document_type === option;
-                return (
-                  <Pressable
-                    key={option}
-                    onPress={() => {
-                      setForm((prev) => ({ ...prev, document_type: option }));
-                      setPicker(null);
-                    }}
-                    style={[styles.modalRow, selected && styles.modalRowSelected]}
-                  >
-                    <Text style={[styles.modalRowText, selected && styles.modalRowTextSelected]}>
-                      {DOCUMENT_TYPE_LABELS[option]}
+              {autoDetected?.extractedText ? (
+                <View style={styles.rawTextSection}>
+                  <Pressable onPress={() => setShowDetectedText((prev) => !prev)} style={styles.detectedTextToggle}>
+                    <Text style={styles.detectedTextToggleLabel}>
+                      {showDetectedText ? 'Hide extracted text' : 'Review extracted text'}
                     </Text>
                   </Pressable>
-                );
-              })}
-            </ScrollView>
-          </FormPickerModal>
+                  {showDetectedText ? (
+                    <Text style={styles.detectedTextBody}>{autoDetected.extractedText}</Text>
+                  ) : null}
+                </View>
+              ) : null}
 
-          <FormPickerModal visible={picker === 'truck'} title="Truck" onClose={() => setPicker(null)}>
-            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
-              <Pressable
-                onPress={() => {
-                  setForm((prev) => ({ ...prev, truck_id: null, permit_id: null }));
-                  setPicker(null);
-                }}
-                style={[styles.modalRow, form.truck_id === null && styles.modalRowSelected]}
-              >
-                <Text style={[styles.modalRowText, form.truck_id === null && styles.modalRowTextSelected]}>No truck</Text>
-              </Pressable>
-              {trucks.map((truck) => {
-                const selected = form.truck_id === truck.id;
-                return (
+              <AppButton
+                title={busy ? (selectedFile ? 'Uploading...' : 'Saving...') : 'Save'}
+                onPress={() => void saveDocument()}
+                disabled={busy}
+              />
+
+              <FormPickerModal visible={picker === 'documentType'} title="Document Type" onClose={() => setPicker(null)}>
+                <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
+                  {DOCUMENT_TYPE_OPTIONS.map((option) => {
+                    const selected = form.document_type === option;
+                    return (
+                      <Pressable
+                        key={option}
+                        onPress={() => {
+                          setForm((prev) => ({ ...prev, document_type: option }));
+                          setPicker(null);
+                        }}
+                        style={[styles.modalRow, selected && styles.modalRowSelected]}
+                      >
+                        <Text style={[styles.modalRowText, selected && styles.modalRowTextSelected]}>
+                          {DOCUMENT_TYPE_LABELS[option]}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </FormPickerModal>
+
+              <FormPickerModal visible={picker === 'jurisdiction'} title="Territory" onClose={() => setPicker(null)}>
+                <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
                   <Pressable
-                    key={truck.id}
                     onPress={() => {
-                      setForm((prev) => ({ ...prev, truck_id: truck.id, permit_id: null }));
+                      setForm((prev) => ({ ...prev, jurisdiction_id: null }));
                       setPicker(null);
                     }}
-                    style={[styles.modalRow, selected && styles.modalRowSelected]}
+                    style={[styles.modalRow, form.jurisdiction_id === null && styles.modalRowSelected]}
                   >
-                    <Text style={[styles.modalRowText, selected && styles.modalRowTextSelected]}>{truckSelectLabel(truck)}</Text>
+                    <Text style={[styles.modalRowText, form.jurisdiction_id === null && styles.modalRowTextSelected]}>
+                      Not set
+                    </Text>
                   </Pressable>
-                );
-              })}
-            </ScrollView>
-          </FormPickerModal>
+                  {knownJurisdictions.map((j) => {
+                    const selected = form.jurisdiction_id === j.id;
+                    return (
+                      <Pressable
+                        key={j.id}
+                        onPress={() => {
+                          setForm((prev) => ({ ...prev, jurisdiction_id: j.id }));
+                          setPicker(null);
+                        }}
+                        style={[styles.modalRow, selected && styles.modalRowSelected]}
+                      >
+                        <Text style={[styles.modalRowText, selected && styles.modalRowTextSelected]}>{j.name}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </FormPickerModal>
 
-          <FormPickerModal visible={picker === 'permit'} title="Related Permit" onClose={() => setPicker(null)}>
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-              <TextInput
-                value={permitSearch}
-                onChangeText={setPermitSearch}
-                placeholder="Search"
-                placeholderTextColor={colors.textMuted}
-                style={styles.modalSearch}
-              />
-              <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
-                <Pressable
-                  onPress={() => {
-                    setForm((prev) => ({ ...prev, permit_id: null }));
-                    setPicker(null);
-                  }}
-                  style={[styles.modalRow, form.permit_id === null && styles.modalRowSelected]}
-                >
-                  <Text style={[styles.modalRowText, form.permit_id === null && styles.modalRowTextSelected]}>No permit</Text>
-                </Pressable>
-                {permitsGroupedForPicker.map(({ jurisdiction, permits }) => (
-                  <View key={jurisdiction}>
-                    <Text style={styles.modalSectionTitle}>{jurisdiction}</Text>
-                    {permits.map((permit) => {
-                      const selected = form.permit_id === permit.id;
-                      return (
-                        <Pressable
-                          key={permit.id}
-                          onPress={() => {
-                            setForm((prev) => ({ ...prev, permit_id: permit.id }));
-                            setPicker(null);
-                          }}
-                          style={[styles.modalRow, selected && styles.modalRowSelected]}
-                        >
-                          <Text style={[styles.modalRowText, selected && styles.modalRowTextSelected]} numberOfLines={2}>
-                            {formatRelatedPermitLabel(permit)}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                ))}
-              </ScrollView>
-            </KeyboardAvoidingView>
-          </FormPickerModal>
-        </AppCard>
+              <FormPickerModal visible={picker === 'truck'} title="Truck" onClose={() => setPicker(null)}>
+                <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
+                  <Pressable
+                    onPress={() => {
+                      setForm((prev) => ({ ...prev, truck_id: null, permit_id: null }));
+                      setPicker(null);
+                    }}
+                    style={[styles.modalRow, form.truck_id === null && styles.modalRowSelected]}
+                  >
+                    <Text style={[styles.modalRowText, form.truck_id === null && styles.modalRowTextSelected]}>No truck</Text>
+                  </Pressable>
+                  {trucks.map((truck) => {
+                    const selected = form.truck_id === truck.id;
+                    return (
+                      <Pressable
+                        key={truck.id}
+                        onPress={() => {
+                          setForm((prev) => ({ ...prev, truck_id: truck.id, permit_id: null }));
+                          setPicker(null);
+                        }}
+                        style={[styles.modalRow, selected && styles.modalRowSelected]}
+                      >
+                        <Text style={[styles.modalRowText, selected && styles.modalRowTextSelected]}>{truckSelectLabel(truck)}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </FormPickerModal>
+
+              <FormPickerModal visible={picker === 'permit'} title="Related Permit" onClose={() => setPicker(null)}>
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                  <TextInput
+                    value={permitSearch}
+                    onChangeText={setPermitSearch}
+                    placeholder="Search"
+                    placeholderTextColor={colors.textMuted}
+                    style={styles.modalSearch}
+                  />
+                  <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
+                    <Pressable
+                      onPress={() => {
+                        setForm((prev) => ({ ...prev, permit_id: null }));
+                        setPicker(null);
+                      }}
+                      style={[styles.modalRow, form.permit_id === null && styles.modalRowSelected]}
+                    >
+                      <Text style={[styles.modalRowText, form.permit_id === null && styles.modalRowTextSelected]}>No permit</Text>
+                    </Pressable>
+                    {permitsGroupedForPicker.map(({ jurisdiction, permits }) => (
+                      <View key={jurisdiction}>
+                        <Text style={styles.modalSectionTitle}>{jurisdiction}</Text>
+                        {permits.map((permit) => {
+                          const selected = form.permit_id === permit.id;
+                          return (
+                            <Pressable
+                              key={permit.id}
+                              onPress={() => {
+                                setForm((prev) => ({ ...prev, permit_id: permit.id }));
+                                setPicker(null);
+                              }}
+                              style={[styles.modalRow, selected && styles.modalRowSelected]}
+                            >
+                              <Text style={[styles.modalRowText, selected && styles.modalRowTextSelected]} numberOfLines={2}>
+                                {formatRelatedPermitLabel(permit)}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    ))}
+                  </ScrollView>
+                </KeyboardAvoidingView>
+              </FormPickerModal>
+            </AppCard>
+          )}
+        </>
       ) : null}
 
       {!showForm && errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
@@ -1036,6 +1198,43 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: colors.info,
+  },
+  uploadLead: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textSecondary,
+    marginBottom: 8,
+  },
+  uploadActions: {
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  autoBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+  },
+  autoBadge: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.accent,
+  },
+  confidenceLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.info,
+  },
+  rawTextSection: {
+    marginTop: 8,
+    marginBottom: 8,
   },
   previewCard: {
     borderRadius: 12,

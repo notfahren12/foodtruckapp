@@ -91,6 +91,7 @@ export type DocumentRow = {
   business_id: string;
   truck_id: string | null;
   permit_id: string | null;
+  jurisdiction_id: string | null;
   document_type: DocumentType;
   name: string;
   file_path: string | null;
@@ -104,6 +105,7 @@ export type DocumentRow = {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  jurisdictions: Pick<JurisdictionRow, 'id' | 'name'> | null;
   trucks: Pick<TruckRow, 'id' | 'name'> | null;
   truck_permits: Pick<TruckPermitRow, 'id'> & {
     permit_requirements: (Pick<PermitRequirementRow, 'id' | 'name'> & {
@@ -173,6 +175,7 @@ function normalizeTruckPermitRows(rows: any[]): TruckPermitRow[] {
 function normalizeDocumentRows(rows: any[]): DocumentRow[] {
   return rows.map((row) => {
     const truck = unwrapRelation(row.trucks) as { id: string; name: string } | null;
+    const jurisdiction = unwrapRelation(row.jurisdictions) as Pick<JurisdictionRow, 'id' | 'name'> | null;
     const permit = unwrapRelation(row.truck_permits) as any;
     const requirement = permit ? (unwrapRelation(permit.permit_requirements) as any) : null;
     return {
@@ -180,6 +183,7 @@ function normalizeDocumentRows(rows: any[]): DocumentRow[] {
       business_id: row.business_id,
       truck_id: row.truck_id ?? null,
       permit_id: row.permit_id ?? null,
+      jurisdiction_id: row.jurisdiction_id ?? null,
       document_type: row.document_type as DocumentType,
       name: row.name,
       file_path: row.file_path ?? null,
@@ -194,6 +198,7 @@ function normalizeDocumentRows(rows: any[]): DocumentRow[] {
       notes: row.notes ?? null,
       created_at: row.created_at,
       updated_at: row.updated_at,
+      jurisdictions: jurisdiction,
       trucks: truck ? { id: truck.id, name: truck.name } : null,
       truck_permits: permit
         ? {
@@ -337,6 +342,18 @@ export async function getMyTrucks(businessId: string): Promise<{ data: TruckRow[
     return { data: [], error: new Error(error.message) };
   }
   return { data: (data ?? []) as TruckRow[], error: null };
+}
+
+export async function getJurisdictions(): Promise<{ data: JurisdictionRow[]; error: Error | null }> {
+  const { data, error } = await supabase
+    .from('jurisdictions')
+    .select('id, name, type, state')
+    .order('name', { ascending: true });
+
+  if (error) {
+    return { data: [], error: new Error(error.message) };
+  }
+  return { data: (data ?? []) as JurisdictionRow[], error: null };
 }
 
 export async function getActivePermitRequirements(): Promise<{ data: PermitRequirementRow[]; error: Error | null }> {
@@ -627,6 +644,7 @@ export type CreateDocumentPayload = {
   business_id: string;
   truck_id: string | null;
   permit_id: string | null;
+  jurisdiction_id?: string | null;
   document_type: DocumentType;
   name: string;
   permit_number?: string | null;
@@ -644,6 +662,7 @@ export type UpdateDocumentPayload = Partial<
     DocumentRow,
     | 'truck_id'
     | 'permit_id'
+    | 'jurisdiction_id'
     | 'document_type'
     | 'name'
     | 'file_path'
@@ -664,6 +683,7 @@ function documentSelectQuery() {
     business_id,
     truck_id,
     permit_id,
+    jurisdiction_id,
     document_type,
     name,
     file_path,
@@ -677,6 +697,10 @@ function documentSelectQuery() {
     notes,
     created_at,
     updated_at,
+    jurisdictions (
+      id,
+      name
+    ),
     trucks (
       id,
       name
