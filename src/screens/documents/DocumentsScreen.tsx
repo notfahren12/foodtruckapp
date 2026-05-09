@@ -634,7 +634,7 @@ export function DocumentsScreen() {
             label="Related Permit"
             value={
               !form.truck_id
-                ? 'No permit'
+                ? 'Choose a truck first'
                 : selectedPermitRow
                   ? formatRelatedPermitLabel(selectedPermitRow)
                   : 'No permit'
