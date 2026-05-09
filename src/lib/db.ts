@@ -428,6 +428,51 @@ export async function getTruckPermits(truckId: string): Promise<{ data: TruckPer
   return { data: normalizeTruckPermitRows((data ?? []) as any[]), error: null };
 }
 
+/** Deletes duplicate truck_permits rows for a truck, keeping the oldest per permit_requirement_id. */
+export async function cleanupDuplicateTruckPermitsForTruck(
+  truckId: string,
+): Promise<{ deletedCount: number; error: Error | null }> {
+  const { data, error } = await supabase
+    .from('truck_permits')
+    .select('id, permit_requirement_id, created_at')
+    .eq('truck_id', truckId)
+    .not('permit_requirement_id', 'is', null)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    return { deletedCount: 0, error: new Error(error.message) };
+  }
+
+  const rows = (data ?? []) as { id: string; permit_requirement_id: string | null }[];
+  const byRequirement = new Map<string, string[]>();
+  for (const row of rows) {
+    const rid = row.permit_requirement_id;
+    if (!rid) continue;
+    const list = byRequirement.get(rid) ?? [];
+    list.push(row.id);
+    byRequirement.set(rid, list);
+  }
+
+  const idsToDelete: string[] = [];
+  for (const ids of byRequirement.values()) {
+    if (ids.length > 1) {
+      idsToDelete.push(...ids.slice(1));
+    }
+  }
+
+  if (!idsToDelete.length) {
+    return { deletedCount: 0, error: null };
+  }
+
+  const { error: deleteError } = await supabase.from('truck_permits').delete().in('id', idsToDelete);
+
+  if (deleteError) {
+    return { deletedCount: 0, error: new Error(deleteError.message) };
+  }
+
+  return { deletedCount: idsToDelete.length, error: null };
+}
+
 export async function getTruckPermitById(permitId: string): Promise<{ data: TruckPermitRow | null; error: Error | null }> {
   const { data, error } = await supabase
     .from('truck_permits')
@@ -476,6 +521,11 @@ export async function getTruckPermitById(permitId: string): Promise<{ data: Truc
 export async function createMissingTruckPermitsForTruck(
   truckId: string,
 ): Promise<{ insertedCount: number; error: Error | null }> {
+  const cleanupRes = await cleanupDuplicateTruckPermitsForTruck(truckId);
+  if (cleanupRes.error) {
+    return { insertedCount: 0, error: cleanupRes.error };
+  }
+
   const [requirementsRes, permitsRes] = await Promise.all([
     getActivePermitRequirements(),
     getTruckPermits(truckId),

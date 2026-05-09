@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Alert, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { AppButton } from '../../components/AppButton';
@@ -13,6 +25,7 @@ import { LEGAL_DISCLAIMER } from '../../constants/legal';
 import { colors } from '../../constants/colors';
 import { useAuth } from '../../context/AuthContext';
 import {
+  cleanupDuplicateTruckPermitsForTruck,
   createDocument,
   deleteDocument,
   DocumentRow,
@@ -22,8 +35,10 @@ import {
   getTruckPermits,
   textOrNull,
   TruckPermitRow,
+  TruckRow,
   updateDocument,
 } from '../../lib/db';
+import { formatRelatedPermitLabel } from '../../lib/permitLabels';
 import { parseDocumentText, type ParsedDocumentData } from '../../lib/documentParser';
 import { extractTextFromImage } from '../../lib/ocr';
 import { deleteDocumentFile, getDocumentSignedUrl, uploadDocumentFile } from '../../lib/storage';
@@ -39,6 +54,18 @@ const DOCUMENT_TYPE_OPTIONS: DocumentType[] = [
   'sales_tax_license',
   'other',
 ];
+
+const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
+  business_license: 'Business license',
+  health_permit: 'Health permit',
+  fire_inspection: 'Fire inspection',
+  commissary_agreement: 'Commissary agreement',
+  insurance: 'Insurance',
+  driver_license: 'Driver license',
+  vehicle_registration: 'Vehicle registration',
+  sales_tax_license: 'Sales tax license',
+  other: 'Other',
+};
 
 type SelectedLocalFile = {
   uri: string;
@@ -81,12 +108,28 @@ function statusFromExpiration(expirationDate: string | null): DocumentStatus {
   return 'uploaded';
 }
 
-function humanizeDocumentType(type: DocumentType): string {
-  return type.replace(/_/g, ' ');
+function territoryForDocument(doc: DocumentRow): string {
+  return doc.truck_permits?.permit_requirements?.jurisdictions?.name ?? 'Unknown territory';
 }
 
-function territoryForDocument(doc: DocumentRow): string {
-  return doc.truck_permits?.permit_requirements?.jurisdictions?.name ?? 'Requirement source needed';
+/** Keeps the oldest row per permit_requirement_id (getTruckPermits orders by created_at ascending). */
+function dedupePermitsByRequirement(rows: TruckPermitRow[]): TruckPermitRow[] {
+  const seen = new Set<string>();
+  const out: TruckPermitRow[] = [];
+  for (const row of rows) {
+    const key = row.permit_requirement_id ?? row.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+function truckSelectLabel(truck: TruckRow): string {
+  if (truck.license_plate?.trim()) {
+    return `${truck.name} · ${truck.license_plate.trim()}`;
+  }
+  return truck.name;
 }
 
 export function DocumentsScreen() {
@@ -105,9 +148,45 @@ export function DocumentsScreen() {
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const selectedTruckName = useMemo(() => {
+  const [picker, setPicker] = useState<null | 'documentType' | 'truck' | 'permit'>(null);
+  const [permitSearch, setPermitSearch] = useState('');
+
+  const dedupedPermitsForTruck = useMemo(
+    () => dedupePermitsByRequirement(permitsForSelectedTruck),
+    [permitsForSelectedTruck],
+  );
+
+  const permitsGroupedForPicker = useMemo(() => {
+    const q = permitSearch.trim().toLowerCase();
+    const filtered = dedupedPermitsForTruck.filter((p) => {
+      if (!q) return true;
+      const label = formatRelatedPermitLabel(p).toLowerCase();
+      const j = (p.permit_requirements?.jurisdictions?.name ?? '').toLowerCase();
+      return label.includes(q) || j.includes(q);
+    });
+    const map = new Map<string, TruckPermitRow[]>();
+    for (const p of filtered) {
+      const j = p.permit_requirements?.jurisdictions?.name ?? 'Other';
+      const list = map.get(j) ?? [];
+      list.push(p);
+      map.set(j, list);
+    }
+    const keys = Array.from(map.keys()).sort((a, b) => a.localeCompare(b));
+    return keys.map((jurisdiction) => ({
+      jurisdiction,
+      permits: map.get(jurisdiction)!,
+    }));
+  }, [dedupedPermitsForTruck, permitSearch]);
+
+  const selectedPermitRow = useMemo(
+    () => dedupedPermitsForTruck.find((p) => p.id === form.permit_id) ?? null,
+    [dedupedPermitsForTruck, form.permit_id],
+  );
+
+  const truckDisplayValue = useMemo(() => {
     if (!form.truck_id) return 'No truck';
-    return trucks.find((truck) => truck.id === form.truck_id)?.name ?? 'Unknown truck';
+    const truck = trucks.find((t) => t.id === form.truck_id);
+    return truck ? truckSelectLabel(truck) : 'Unknown truck';
   }, [form.truck_id, trucks]);
 
   async function refreshDocuments() {
@@ -137,6 +216,11 @@ export function DocumentsScreen() {
     async function loadPermits() {
       const truckId = form.truck_id;
       if (!truckId) return;
+      const cleanupResult = await cleanupDuplicateTruckPermitsForTruck(truckId);
+      if (cancelled) return;
+      if (cleanupResult.error) {
+        console.warn('cleanupDuplicateTruckPermitsForTruck:', cleanupResult.error.message);
+      }
       const result = await getTruckPermits(truckId);
       if (cancelled) return;
       if (result.error) {
@@ -192,6 +276,8 @@ export function DocumentsScreen() {
     setSelectedFile(null);
     setAutoDetected(null);
     setErrorMessage(null);
+    setPicker(null);
+    setPermitSearch('');
   }
 
   function startCreate() {
@@ -531,69 +617,35 @@ export function DocumentsScreen() {
             <TextInput
               value={form.name}
               onChangeText={(value) => setForm((prev) => ({ ...prev, name: value }))}
-              placeholder="Health permit"
               placeholderTextColor={colors.textMuted}
               style={styles.input}
             />
           </Field>
 
-          <Field label="Document type">
-            <View style={styles.pillWrap}>
-              {DOCUMENT_TYPE_OPTIONS.map((option) => (
-                <Pressable
-                  key={option}
-                  onPress={() => setForm((prev) => ({ ...prev, document_type: option }))}
-                  style={[styles.pill, form.document_type === option && styles.pillActive]}
-                >
-                  <Text style={[styles.pillText, form.document_type === option && styles.pillTextActive]}>
-                    {humanizeDocumentType(option)}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </Field>
+          <SelectRow
+            label="Document Type"
+            value={DOCUMENT_TYPE_LABELS[form.document_type]}
+            onPress={() => setPicker('documentType')}
+          />
 
-          <Field label={`Truck • ${selectedTruckName}`}>
-            <View style={styles.pillWrap}>
-              <Pressable
-                onPress={() => setForm((prev) => ({ ...prev, truck_id: null, permit_id: null }))}
-                style={[styles.pill, form.truck_id === null && styles.pillActive]}
-              >
-                <Text style={[styles.pillText, form.truck_id === null && styles.pillTextActive]}>No truck</Text>
-              </Pressable>
-              {trucks.map((truck) => (
-                <Pressable
-                  key={truck.id}
-                  onPress={() => setForm((prev) => ({ ...prev, truck_id: truck.id, permit_id: null }))}
-                  style={[styles.pill, form.truck_id === truck.id && styles.pillActive]}
-                >
-                  <Text style={[styles.pillText, form.truck_id === truck.id && styles.pillTextActive]}>{truck.name}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </Field>
+          <SelectRow label="Truck" value={truckDisplayValue} onPress={() => setPicker('truck')} />
 
-          <Field label="Permit">
-            <View style={styles.pillWrap}>
-              <Pressable
-                onPress={() => setForm((prev) => ({ ...prev, permit_id: null }))}
-                style={[styles.pill, form.permit_id === null && styles.pillActive]}
-              >
-                <Text style={[styles.pillText, form.permit_id === null && styles.pillTextActive]}>No permit</Text>
-              </Pressable>
-              {permitsForSelectedTruck.map((permit) => (
-                <Pressable
-                  key={permit.id}
-                  onPress={() => setForm((prev) => ({ ...prev, permit_id: permit.id }))}
-                  style={[styles.pill, form.permit_id === permit.id && styles.pillActive]}
-                >
-                  <Text style={[styles.pillText, form.permit_id === permit.id && styles.pillTextActive]}>
-                    {permit.permit_requirements?.name ?? 'Requirement source needed'}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </Field>
+          <SelectRow
+            label="Related Permit"
+            value={
+              !form.truck_id
+                ? 'No permit'
+                : selectedPermitRow
+                  ? formatRelatedPermitLabel(selectedPermitRow)
+                  : 'No permit'
+            }
+            onPress={() => {
+              if (!form.truck_id) return;
+              setPermitSearch('');
+              setPicker('permit');
+            }}
+            disabled={!form.truck_id}
+          />
 
           <Field label="Expiration date (YYYY-MM-DD)">
             <TextInput
@@ -629,7 +681,6 @@ export function DocumentsScreen() {
             <TextInput
               value={form.notes}
               onChangeText={(value) => setForm((prev) => ({ ...prev, notes: value }))}
-              placeholder="Requirement source needed"
               placeholderTextColor={colors.textMuted}
               style={[styles.input, styles.notesInput]}
               multiline
@@ -671,6 +722,106 @@ export function DocumentsScreen() {
             onPress={() => void saveDocument()}
             disabled={busy}
           />
+
+          <FormPickerModal
+            visible={picker === 'documentType'}
+            title="Document Type"
+            onClose={() => setPicker(null)}
+          >
+            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
+              {DOCUMENT_TYPE_OPTIONS.map((option) => {
+                const selected = form.document_type === option;
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => {
+                      setForm((prev) => ({ ...prev, document_type: option }));
+                      setPicker(null);
+                    }}
+                    style={[styles.modalRow, selected && styles.modalRowSelected]}
+                  >
+                    <Text style={[styles.modalRowText, selected && styles.modalRowTextSelected]}>
+                      {DOCUMENT_TYPE_LABELS[option]}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </FormPickerModal>
+
+          <FormPickerModal visible={picker === 'truck'} title="Truck" onClose={() => setPicker(null)}>
+            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
+              <Pressable
+                onPress={() => {
+                  setForm((prev) => ({ ...prev, truck_id: null, permit_id: null }));
+                  setPicker(null);
+                }}
+                style={[styles.modalRow, form.truck_id === null && styles.modalRowSelected]}
+              >
+                <Text style={[styles.modalRowText, form.truck_id === null && styles.modalRowTextSelected]}>No truck</Text>
+              </Pressable>
+              {trucks.map((truck) => {
+                const selected = form.truck_id === truck.id;
+                return (
+                  <Pressable
+                    key={truck.id}
+                    onPress={() => {
+                      setForm((prev) => ({ ...prev, truck_id: truck.id, permit_id: null }));
+                      setPicker(null);
+                    }}
+                    style={[styles.modalRow, selected && styles.modalRowSelected]}
+                  >
+                    <Text style={[styles.modalRowText, selected && styles.modalRowTextSelected]}>{truckSelectLabel(truck)}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </FormPickerModal>
+
+          <FormPickerModal visible={picker === 'permit'} title="Related Permit" onClose={() => setPicker(null)}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+              <TextInput
+                value={permitSearch}
+                onChangeText={setPermitSearch}
+                placeholder="Search"
+                placeholderTextColor={colors.textMuted}
+                style={styles.modalSearch}
+              />
+              <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
+                <Pressable
+                  onPress={() => {
+                    setForm((prev) => ({ ...prev, permit_id: null }));
+                    setPicker(null);
+                  }}
+                  style={[styles.modalRow, form.permit_id === null && styles.modalRowSelected]}
+                >
+                  <Text style={[styles.modalRowText, form.permit_id === null && styles.modalRowTextSelected]}>No permit</Text>
+                </Pressable>
+                {permitsGroupedForPicker.map(({ jurisdiction, permits }) => (
+                  <View key={jurisdiction}>
+                    <Text style={styles.modalSectionTitle}>{jurisdiction}</Text>
+                    {permits.map((permit) => {
+                      const selected = form.permit_id === permit.id;
+                      return (
+                        <Pressable
+                          key={permit.id}
+                          onPress={() => {
+                            setForm((prev) => ({ ...prev, permit_id: permit.id }));
+                            setPicker(null);
+                          }}
+                          style={[styles.modalRow, selected && styles.modalRowSelected]}
+                        >
+                          <Text style={[styles.modalRowText, selected && styles.modalRowTextSelected]} numberOfLines={2}>
+                            {formatRelatedPermitLabel(permit)}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ))}
+              </ScrollView>
+            </KeyboardAvoidingView>
+          </FormPickerModal>
         </AppCard>
       ) : null}
 
@@ -682,7 +833,7 @@ export function DocumentsScreen() {
             if (!rows.length) return null;
             return (
               <View key={type} style={styles.sectionWrap}>
-                <SectionHeader title={humanizeDocumentType(type)} />
+                <SectionHeader title={DOCUMENT_TYPE_LABELS[type]} />
                 {rows.map((doc) => (
                   <AppCard key={doc.id} title={doc.name}>
                     <View style={styles.rowBetween}>
@@ -728,6 +879,63 @@ export function DocumentsScreen() {
 
       <Text style={styles.disclaimer}>{LEGAL_DISCLAIMER}</Text>
     </Screen>
+  );
+}
+
+function SelectRow({
+  label,
+  value,
+  onPress,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <Pressable
+        onPress={onPress}
+        disabled={disabled}
+        style={[styles.selectCard, disabled ? styles.selectCardDisabled : null]}
+      >
+        <Text style={[styles.selectValue, disabled ? styles.selectValueDisabled : null]} numberOfLines={2}>
+          {value}
+        </Text>
+        <Text style={styles.chevron}>›</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function FormPickerModal({
+  visible,
+  title,
+  onClose,
+  children,
+}: {
+  visible: boolean;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.modalBackdropFill} onPress={onClose} accessibilityLabel="Close picker" />
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>{title}</Text>
+            <Pressable onPress={onClose} hitSlop={12}>
+              <Text style={styles.modalDone}>Done</Text>
+            </Pressable>
+          </View>
+          {children}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -863,6 +1071,113 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     color: colors.textSecondary,
+  },
+  modalRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  modalBackdropFill: {
+    flex: 1,
+  },
+  modalSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 24,
+    paddingHorizontal: 16,
+    maxHeight: '85%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSoft,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  modalDone: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.info,
+  },
+  modalScroll: {
+    maxHeight: 420,
+  },
+  modalRow: {
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSoft,
+  },
+  modalRowSelected: {
+    backgroundColor: '#EFF6FF',
+    marginHorizontal: -8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderBottomWidth: 0,
+  },
+  modalRowText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  modalRowTextSelected: {
+    color: colors.info,
+  },
+  modalSectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    paddingTop: 14,
+    paddingBottom: 6,
+  },
+  modalSearch: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    marginTop: 8,
+    marginBottom: 4,
+    color: colors.textPrimary,
+  },
+  selectCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: colors.surface,
+    gap: 8,
+  },
+  selectCardDisabled: {
+    opacity: 0.45,
+  },
+  selectValue: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  selectValueDisabled: {
+    color: colors.textMuted,
+  },
+  chevron: {
+    fontSize: 22,
+    fontWeight: '300',
+    color: colors.textMuted,
   },
   disclaimer: {
     fontSize: 12,
