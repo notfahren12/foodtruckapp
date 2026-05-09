@@ -24,6 +24,8 @@ import {
   TruckPermitRow,
   updateDocument,
 } from '../../lib/db';
+import { parseDocumentText, type ParsedDocumentData } from '../../lib/documentParser';
+import { extractTextFromImage } from '../../lib/ocr';
 import { deleteDocumentFile, getDocumentSignedUrl, uploadDocumentFile } from '../../lib/storage';
 
 const DOCUMENT_TYPE_OPTIONS: DocumentType[] = [
@@ -49,6 +51,8 @@ type FormState = {
   document_type: DocumentType;
   truck_id: string | null;
   permit_id: string | null;
+  permit_number: string;
+  issued_date: string;
   expiration_date: string;
   notes: string;
 };
@@ -58,6 +62,8 @@ const EMPTY_FORM: FormState = {
   document_type: 'business_license',
   truck_id: null,
   permit_id: null,
+  permit_number: '',
+  issued_date: '',
   expiration_date: '',
   notes: '',
 };
@@ -93,6 +99,9 @@ export function DocumentsScreen() {
   const [selectedFile, setSelectedFile] = useState<SelectedLocalFile | null>(null);
   const [selectedTruckFilter, setSelectedTruckFilter] = useState<string>('all');
   const [selectedTerritoryFilter, setSelectedTerritoryFilter] = useState<string>('all');
+  const [autoDetected, setAutoDetected] = useState<ParsedDocumentData | null>(null);
+  const [showDetectedText, setShowDetectedText] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -181,6 +190,7 @@ export function DocumentsScreen() {
     setEditingDocument(null);
     setShowForm(false);
     setSelectedFile(null);
+    setAutoDetected(null);
     setErrorMessage(null);
   }
 
@@ -192,6 +202,7 @@ export function DocumentsScreen() {
     setEditingDocument(null);
     setShowForm(true);
     setSelectedFile(null);
+    setAutoDetected(null);
     setErrorMessage(null);
   }
 
@@ -201,13 +212,54 @@ export function DocumentsScreen() {
       document_type: document.document_type,
       truck_id: document.truck_id,
       permit_id: document.permit_id,
+      permit_number: document.permit_number ?? '',
+      issued_date: document.issued_date ?? '',
       expiration_date: document.expiration_date ?? '',
       notes: document.notes ?? '',
     });
     setEditingDocument(document);
     setShowForm(true);
     setSelectedFile(null);
+    setAutoDetected(null);
     setErrorMessage(null);
+  }
+
+  function applyAutoDetected(result: ParsedDocumentData) {
+    setAutoDetected(result);
+    setShowDetectedText(false);
+    setForm((prev) => ({
+      ...prev,
+      document_type: (result.documentType as DocumentType | undefined) ?? prev.document_type,
+      name: result.name ?? prev.name,
+      permit_number: result.permitNumber ?? prev.permit_number,
+      issued_date: result.issuedDate ?? prev.issued_date,
+      expiration_date: result.expirationDate ?? prev.expiration_date,
+      notes: result.businessName
+        ? `Auto-detected business: ${result.businessName}. ${prev.notes}`.trim()
+        : prev.notes,
+    }));
+  }
+
+  function isPdfOrDocument(fileName?: string | null, mimeType?: string | null): boolean {
+    const lowerName = (fileName ?? '').toLowerCase();
+    const lowerMime = (mimeType ?? '').toLowerCase();
+    return lowerName.endsWith('.pdf') || lowerMime.includes('pdf');
+  }
+
+  async function scanIfImage(args: { uri: string; fileName?: string | null; mimeType?: string | null }) {
+    if (isPdfOrDocument(args.fileName, args.mimeType)) {
+      Alert.alert('PDF auto-scan coming soon', 'Enter details manually for PDF files.');
+      return;
+    }
+    setScanning(true);
+    try {
+      const rawText = await extractTextFromImage(args.uri);
+      if (!rawText) return;
+      const parsed = parseDocumentText(rawText);
+      applyAutoDetected(parsed);
+    } finally {
+      setScanning(false);
+    }
   }
 
   async function pickDocumentFile() {
@@ -224,6 +276,7 @@ export function DocumentsScreen() {
       fileName: file.name ?? `document-${Date.now()}`,
       mimeType: file.mimeType ?? null,
     });
+    await scanIfImage({ uri: file.uri, fileName: file.name, mimeType: file.mimeType ?? null });
   }
 
   async function pickFromPhotos() {
@@ -243,6 +296,11 @@ export function DocumentsScreen() {
       fileName: asset.fileName ?? `photo-${Date.now()}.jpg`,
       mimeType: asset.mimeType ?? 'image/jpeg',
     });
+    await scanIfImage({
+      uri: asset.uri,
+      fileName: asset.fileName ?? `photo-${Date.now()}.jpg`,
+      mimeType: asset.mimeType ?? 'image/jpeg',
+    });
   }
 
   async function takePhoto() {
@@ -257,6 +315,11 @@ export function DocumentsScreen() {
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
     setSelectedFile({
+      uri: asset.uri,
+      fileName: asset.fileName ?? `camera-${Date.now()}.jpg`,
+      mimeType: asset.mimeType ?? 'image/jpeg',
+    });
+    await scanIfImage({
       uri: asset.uri,
       fileName: asset.fileName ?? `camera-${Date.now()}.jpg`,
       mimeType: asset.mimeType ?? 'image/jpeg',
@@ -288,8 +351,13 @@ export function DocumentsScreen() {
           document_type: form.document_type,
           truck_id: form.truck_id,
           permit_id: form.permit_id,
+          permit_number: textOrNull(form.permit_number),
+          issued_date: form.issued_date.trim() || null,
           expiration_date: expirationValue,
           status,
+          extracted_text: autoDetected?.rawText ?? null,
+          extracted_confidence: autoDetected?.confidence ?? null,
+          auto_detected: Boolean(autoDetected),
           notes,
         });
         if (updateRes.error || !updateRes.data) {
@@ -304,8 +372,13 @@ export function DocumentsScreen() {
           permit_id: form.permit_id,
           document_type: form.document_type,
           name: form.name.trim(),
+          permit_number: textOrNull(form.permit_number),
+          issued_date: form.issued_date.trim() || null,
           expiration_date: expirationValue,
           status,
+          extracted_text: autoDetected?.rawText ?? null,
+          extracted_confidence: autoDetected?.confidence ?? null,
+          auto_detected: Boolean(autoDetected),
           notes,
         });
         if (createRes.error || !createRes.data) {
@@ -451,6 +524,8 @@ export function DocumentsScreen() {
       {showForm ? (
         <AppCard title={editingDocument ? 'Edit document' : 'Add document'}>
           {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
+          {autoDetected ? <Text style={styles.autoDetected}>Auto-detected information</Text> : null}
+          {scanning ? <Text style={styles.scanState}>Scanning document…</Text> : null}
 
           <Field label="Name *">
             <TextInput
@@ -530,6 +605,26 @@ export function DocumentsScreen() {
             />
           </Field>
 
+          <Field label="Issued date (YYYY-MM-DD)">
+            <TextInput
+              value={form.issued_date}
+              onChangeText={(value) => setForm((prev) => ({ ...prev, issued_date: value }))}
+              placeholder="2026-01-10"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+            />
+          </Field>
+
+          <Field label="Permit / License number">
+            <TextInput
+              value={form.permit_number}
+              onChangeText={(value) => setForm((prev) => ({ ...prev, permit_number: value }))}
+              placeholder="Permit number"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+            />
+          </Field>
+
           <Field label="Notes">
             <TextInput
               value={form.notes}
@@ -556,6 +651,21 @@ export function DocumentsScreen() {
             </View>
           </Field>
 
+          {autoDetected ? (
+            <View style={styles.previewCard}>
+              <Text style={styles.previewTitle}>Preview</Text>
+              <Text style={styles.previewLine}>{autoDetected.name ?? form.name ?? 'Document'}</Text>
+              <Text style={styles.previewLine}>Permit #: {autoDetected.permitNumber ?? 'Not detected'}</Text>
+              <Text style={styles.previewLine}>Issued: {autoDetected.issuedDate ?? 'Not detected'}</Text>
+              <Text style={styles.previewLine}>Expires: {autoDetected.expirationDate ?? 'Not detected'}</Text>
+              <Text style={styles.previewLine}>Confidence: {Math.round(autoDetected.confidence * 100)}%</Text>
+              <Pressable onPress={() => setShowDetectedText((prev) => !prev)} style={styles.detectedTextToggle}>
+                <Text style={styles.detectedTextToggleLabel}>Review detected text</Text>
+              </Pressable>
+              {showDetectedText ? <Text style={styles.detectedTextBody}>{autoDetected.rawText}</Text> : null}
+            </View>
+          ) : null}
+
           <AppButton
             title={busy ? (selectedFile ? 'Uploading...' : 'Saving...') : 'Save'}
             onPress={() => void saveDocument()}
@@ -577,10 +687,13 @@ export function DocumentsScreen() {
                   <AppCard key={doc.id} title={doc.name}>
                     <View style={styles.rowBetween}>
                       <Text style={styles.metaLine}>{territoryForDocument(doc)}</Text>
-                      <StatusBadge status={statusFromExpiration(doc.expiration_date)} />
+                      <StatusBadge
+                        status={doc.status === 'missing' ? 'not_uploaded' : statusFromExpiration(doc.expiration_date)}
+                      />
                     </View>
                     <Text style={styles.metaLine}>Truck: {doc.trucks?.name ?? 'Not assigned'}</Text>
                     <Text style={styles.metaLine}>Expiration: {doc.expiration_date ?? 'Not yet uploaded'}</Text>
+                    {doc.permit_number ? <Text style={styles.metaLine}>Permit #: {doc.permit_number}</Text> : null}
                     {doc.file_path ? (
                       <Text style={styles.fileAttached}>File attached</Text>
                     ) : (
@@ -705,6 +818,51 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.danger,
     fontWeight: '700',
+  },
+  autoDetected: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.accent,
+  },
+  scanState: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.info,
+  },
+  previewCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    backgroundColor: colors.surfaceAlt,
+    padding: 10,
+    gap: 4,
+  },
+  previewTitle: {
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    fontWeight: '700',
+    color: colors.textMuted,
+  },
+  previewLine: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  detectedTextToggle: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+  },
+  detectedTextToggleLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.info,
+  },
+  detectedTextBody: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.textSecondary,
   },
   disclaimer: {
     fontSize: 12,

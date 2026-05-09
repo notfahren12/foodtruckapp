@@ -3,7 +3,7 @@ import { colors } from '../constants/colors';
 import type { PermitStatus } from '../data/mockCompliance';
 import type { DocumentStatus, InspectionStatus, TruckPermitStatus } from '../lib/db';
 
-export type BadgeStatus = PermitStatus | TruckPermitStatus | DocumentStatus | InspectionStatus;
+export type BadgeStatus = PermitStatus | TruckPermitStatus | DocumentStatus | InspectionStatus | 'not_uploaded';
 
 function formatStatusLabel(status: BadgeStatus): string {
   switch (status) {
@@ -26,6 +26,8 @@ function formatStatusLabel(status: BadgeStatus): string {
       return 'Scheduled';
     case 'passed':
       return 'Passed';
+    case 'not_uploaded':
+      return 'Not uploaded';
     case 'failed':
     case 'needs_reschedule':
     case 'cancelled':
@@ -43,6 +45,7 @@ function toneForStatus(status: BadgeStatus): { bg: string; border: string; fg: s
     case 'failed':
     case 'needs_reschedule':
     case 'cancelled':
+    case 'not_uploaded':
       return { bg: '#FEE2E2', border: '#FECACA', fg: colors.danger };
     case 'Uploaded':
     case 'uploaded':

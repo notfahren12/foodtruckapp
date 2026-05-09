@@ -1,6 +1,7 @@
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { AppButton } from '../../components/AppButton';
 import { AppCard } from '../../components/AppCard';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { SectionHeader } from '../../components/SectionHeader';
@@ -8,17 +9,34 @@ import { Screen } from '../../components/ui/Screen';
 import { useAuth } from '../../context/AuthContext';
 import { LEGAL_DISCLAIMER } from '../../constants/legal';
 import { colors } from '../../constants/colors';
+import { seedDemoComplianceDataForBusiness } from '../../lib/demoDataSeeder';
 import { RootStackParamList } from '../../navigation/types';
 
 export function SettingsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { business, profile, signOut, user } = useAuth();
+  const { business, profile, signOut, trucks, user } = useAuth();
 
   async function confirmSignOut() {
     const { error } = await signOut();
     if (error) {
       Alert.alert('Sign out failed', error);
     }
+  }
+
+  async function handleLoadDemoData() {
+    if (!business) {
+      Alert.alert('Load demo data', 'Complete onboarding first.');
+      return;
+    }
+    const result = await seedDemoComplianceDataForBusiness(business, trucks);
+    if (result.error) {
+      Alert.alert('Load demo data failed', result.error);
+      return;
+    }
+    Alert.alert(
+      'Demo data loaded',
+      `Permits updated: ${result.inserted.permitsUpdated}\nDocuments created: ${result.inserted.documentsCreated}\nInspections created: ${result.inserted.inspectionsCreated}`,
+    );
   }
 
   const emailDisplay = user?.email ?? 'Not signed in';
@@ -54,6 +72,8 @@ export function SettingsScreen() {
           If you delete your business in Supabase, you will automatically return through onboarding next time you launch the signed-in app.
         </Text>
       </AppCard>
+
+      {__DEV__ ? <AppButton title="Load Demo Data" onPress={() => void handleLoadDemoData()} /> : null}
 
       <Pressable
         onPress={() => {

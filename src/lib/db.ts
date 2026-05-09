@@ -94,8 +94,13 @@ export type DocumentRow = {
   document_type: DocumentType;
   name: string;
   file_path: string | null;
+  permit_number: string | null;
+  issued_date: string | null;
   expiration_date: string | null;
   status: DocumentStatus;
+  extracted_text: string | null;
+  extracted_confidence: number | null;
+  auto_detected: boolean;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -178,8 +183,14 @@ function normalizeDocumentRows(rows: any[]): DocumentRow[] {
       document_type: row.document_type as DocumentType,
       name: row.name,
       file_path: row.file_path ?? null,
+      permit_number: row.permit_number ?? null,
+      issued_date: row.issued_date ?? null,
       expiration_date: row.expiration_date ?? null,
       status: row.status as DocumentStatus,
+      extracted_text: row.extracted_text ?? null,
+      extracted_confidence:
+        typeof row.extracted_confidence === 'number' ? row.extracted_confidence : row.extracted_confidence ? Number(row.extracted_confidence) : null,
+      auto_detected: Boolean(row.auto_detected),
       notes: row.notes ?? null,
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -568,13 +579,33 @@ export type CreateDocumentPayload = {
   permit_id: string | null;
   document_type: DocumentType;
   name: string;
+  permit_number?: string | null;
+  issued_date?: string | null;
   expiration_date: string | null;
   status: DocumentStatus;
+  extracted_text?: string | null;
+  extracted_confidence?: number | null;
+  auto_detected?: boolean;
   notes: string | null;
 };
 
 export type UpdateDocumentPayload = Partial<
-  Pick<DocumentRow, 'truck_id' | 'permit_id' | 'document_type' | 'name' | 'file_path' | 'expiration_date' | 'status' | 'notes'>
+  Pick<
+    DocumentRow,
+    | 'truck_id'
+    | 'permit_id'
+    | 'document_type'
+    | 'name'
+    | 'file_path'
+    | 'permit_number'
+    | 'issued_date'
+    | 'expiration_date'
+    | 'status'
+    | 'extracted_text'
+    | 'extracted_confidence'
+    | 'auto_detected'
+    | 'notes'
+  >
 >;
 
 function documentSelectQuery() {
@@ -586,8 +617,13 @@ function documentSelectQuery() {
     document_type,
     name,
     file_path,
+    permit_number,
+    issued_date,
     expiration_date,
     status,
+    extracted_text,
+    extracted_confidence,
+    auto_detected,
     notes,
     created_at,
     updated_at,
