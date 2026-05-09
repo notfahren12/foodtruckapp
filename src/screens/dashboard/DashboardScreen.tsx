@@ -1,222 +1,116 @@
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { ActionCard } from '../../components/cards/ActionCard';
-import { ComplianceScoreCard } from '../../components/cards/ComplianceScoreCard';
-import { AppointmentRow } from '../../components/lists/AppointmentRow';
-import { RequirementRow } from '../../components/lists/RequirementRow';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppCard } from '../../components/AppCard';
+import { ScreenHeader } from '../../components/ScreenHeader';
 import { Screen } from '../../components/ui/Screen';
-import { SectionHeader } from '../../components/ui/SectionHeader';
-import { TruckSwitcher } from '../../components/ui/TruckSwitcher';
+import { LEGAL_DISCLAIMER } from '../../constants/legal';
 import { colors } from '../../constants/colors';
+import {
+  MOCK_DASHBOARD_SUMMARY,
+  MOCK_TRUCKS,
+} from '../../data/mockCompliance';
 import { useAppState } from '../../core/AppProvider';
-import { calculateComplianceScore, getHighestRiskTruck, getMissingItems, getOverdueItems, getUpcomingItems } from '../../lib/compliance';
-import { formatDate } from '../../lib/dates';
 
 export function DashboardScreen() {
-  const navigation = useNavigation<any>();
-  const {
-    data,
-    scopedAppointments,
-    scopedDocuments,
-    scopedInspectionResults,
-    scopedRequirements,
-    selectedTruck,
-    selectedTruckId,
-    setSelectedTruckId,
-  } = useAppState();
-
-  const breakdown = calculateComplianceScore(scopedRequirements, scopedDocuments, scopedInspectionResults);
-  const expiringSoon = getUpcomingItems(scopedRequirements.filter((item) => item.expirationDate), 30).slice(0, 3);
-  const missingItems = getMissingItems(scopedRequirements).slice(0, 3);
-  const overdueItems = getOverdueItems(scopedRequirements).slice(0, 3);
-  const upcomingAppointments = getUpcomingItems(scopedAppointments, 14).slice(0, 3);
-  const highestRisk = getHighestRiskTruck(data.trucks, data.requirements, data.documents, data.inspectionResults);
-
-  const nextAction =
-    [...missingItems, ...overdueItems, ...expiringSoon]
-      .sort((left, right) => new Date(left.nextActionDate ?? left.dueDate ?? '').getTime() - new Date(right.nextActionDate ?? right.dueDate ?? '').getTime())[0] ??
-    scopedRequirements[0] ??
-    data.requirements[0];
-  const nextActionCard = nextAction ?? {
-    title: 'No active actions',
-    notes: 'Your current scope does not have any pending next actions.',
-    nextActionDate: undefined,
-    dueDate: undefined,
-  };
+  const { businessProfile, selectedTruckId, setSelectedTruckId } = useAppState();
 
   return (
     <Screen>
-      <View style={styles.hero}>
-        <Text style={styles.eyebrow}>Central Alabama</Text>
-        <Text style={styles.title}>Compliance Dashboard</Text>
-        <Text style={styles.subtitle}>
-          Track every truck, every permit, and every inspection window without losing the company-wide view.
-        </Text>
-        <TruckSwitcher
-          onSelect={setSelectedTruckId}
-          selectedTruckId={selectedTruckId}
-          trucks={data.trucks}
-        />
-      </View>
-
-      <ComplianceScoreCard
-        breakdown={breakdown}
-        subtitle={selectedTruck ? `${selectedTruck.name} readiness` : 'Company-wide readiness'}
+      <ScreenHeader
+        subtitle={
+          businessProfile?.businessName
+            ? `${businessProfile.businessName} • Central Alabama`
+            : 'Food Truck Permit Tracker'
+        }
+        title="Dashboard"
       />
 
-      <View style={styles.actionGrid}>
-        <ActionCard icon="cloud-upload-outline" label="Add Document" onPress={() => navigation.navigate('Documents')} />
-        <ActionCard icon="calendar-outline" label="Schedule Appointment" onPress={() => navigation.navigate('Calendar')} />
-        <ActionCard icon="briefcase-outline" label="Generate Packet" onPress={() => navigation.navigate('Events')} />
-        <ActionCard icon="add-circle-outline" label="Add Truck" onPress={() => navigation.navigate('ManageTrucks')} />
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardEyebrow}>Next Best Action</Text>
-        <Text style={styles.cardTitle}>{nextActionCard.title}</Text>
-        <Text style={styles.cardBody}>{nextActionCard.notes}</Text>
-        <Text style={styles.cardMeta}>Target date: {formatDate(nextActionCard.nextActionDate ?? nextActionCard.dueDate)}</Text>
-      </View>
-
-      {selectedTruckId === 'all' && highestRisk.truck ? (
+      <Text style={styles.sectionLabel}>Selected truck</Text>
+      <View style={styles.truckRow}>
         <Pressable
-          onPress={() => setSelectedTruckId(highestRisk.truck!.id)}
-          style={styles.card}
+          onPress={() => setSelectedTruckId(null)}
+          style={[styles.truckChip, selectedTruckId === null && styles.truckChipActive]}
         >
-          <Text style={styles.cardEyebrow}>Highest-risk truck</Text>
-          <Text style={styles.cardTitle}>{highestRisk.truck.name}</Text>
-          <Text style={styles.cardBody}>
-            Fire and event readiness are dragging this truck below the rest of the fleet. Tap to isolate its checklist.
-          </Text>
-          <Text style={styles.cardMeta}>Current score: {highestRisk.score}</Text>
+          <Text style={[styles.truckChipText, selectedTruckId === null && styles.truckChipTextActive]}>All trucks</Text>
         </Pressable>
-      ) : null}
+        {MOCK_TRUCKS.map((truck) => (
+          <Pressable
+            key={truck.id}
+            onPress={() => setSelectedTruckId(truck.id)}
+            style={[styles.truckChip, selectedTruckId === truck.id && styles.truckChipActive]}
+          >
+            <Text style={[styles.truckChipText, selectedTruckId === truck.id && styles.truckChipTextActive]}>{truck.name}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={styles.helper}>Dropdown behavior will replace these chips in a later release.</Text>
 
-      <SectionHeader title="Expiring Soon" caption="Renewals and certificates closing in." />
-      {expiringSoon.map((requirement) => (
-        <RequirementRow
-          key={requirement.id}
-          onPress={() => navigation.navigate('RequirementDetail', { requirementId: requirement.id })}
-          requirement={requirement}
-          truckLabel={data.trucks.find((truck) => truck.id === requirement.truckId)?.name}
-        />
-      ))}
+      <AppCard subtitle={MOCK_DASHBOARD_SUMMARY.complianceDetail} title={MOCK_DASHBOARD_SUMMARY.complianceHeadline}>
+        <Text style={styles.meta}>Compliance status • placeholder summary</Text>
+      </AppCard>
 
-      <SectionHeader title="Missing Requirements" caption="Items blocking approval or event readiness." />
-      {missingItems.map((requirement) => (
-        <RequirementRow
-          key={requirement.id}
-          onPress={() => navigation.navigate('RequirementDetail', { requirementId: requirement.id })}
-          requirement={requirement}
-          truckLabel={data.trucks.find((truck) => truck.id === requirement.truckId)?.name}
-        />
-      ))}
+      <AppCard subtitle={MOCK_DASHBOARD_SUMMARY.expiringSoonDetail} title={MOCK_DASHBOARD_SUMMARY.expiringSoonHeadline}>
+        <Text style={styles.meta}>Renewals • placeholder</Text>
+      </AppCard>
 
-      <SectionHeader title="Overdue" caption="Past-due tasks and deadlines." />
-      {overdueItems.length ? (
-        overdueItems.map((requirement) => (
-          <RequirementRow
-            key={requirement.id}
-            onPress={() => navigation.navigate('RequirementDetail', { requirementId: requirement.id })}
-            requirement={requirement}
-            truckLabel={data.trucks.find((truck) => truck.id === requirement.truckId)?.name}
-          />
-        ))
-      ) : (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyText}>No overdue items in this view right now.</Text>
-        </View>
-      )}
+      <AppCard subtitle={MOCK_DASHBOARD_SUMMARY.missingDocsDetail} title={MOCK_DASHBOARD_SUMMARY.missingDocsHeadline}>
+        <Text style={styles.meta}>Upload queue • placeholder</Text>
+      </AppCard>
 
-      <SectionHeader title="Upcoming Appointments" caption="Inspections, reviews, and confirmed visits." actionLabel="Open calendar" onPressAction={() => navigation.navigate('Calendar')} />
-      {upcomingAppointments.map((appointment) => (
-        <AppointmentRow
-          key={appointment.id}
-          appointment={appointment}
-          onPress={() => navigation.navigate('AppointmentDetail', { appointmentId: appointment.id })}
-          truckLabel={data.trucks.find((truck) => truck.id === appointment.truckId)?.name}
-        />
-      ))}
+      <AppCard subtitle={MOCK_DASHBOARD_SUMMARY.upcomingInspectionsDetail} title={MOCK_DASHBOARD_SUMMARY.upcomingInspectionsHeadline}>
+        <Text style={styles.meta}>Inspection queue • placeholder</Text>
+      </AppCard>
 
-      <Pressable
-        onPress={() => Alert.alert('Packet Generator', 'Packet generation is scaffolded here and ready for PDF export later.')}
-        style={styles.card}
-      >
-        <Text style={styles.cardEyebrow}>Packet Generator</Text>
-        <Text style={styles.cardTitle}>Fire Inspection Packet</Text>
-        <Text style={styles.cardBody}>
-          Combine the business license, health permit, fire certificate, tag photos, insurance COI, truck photo, and setup notes into one review packet.
-        </Text>
-      </Pressable>
+      <Text style={styles.disclaimer}>{LEGAL_DISCLAIMER}</Text>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: {
-    gap: 10,
-  },
-  eyebrow: {
-    color: colors.success,
-    fontSize: 12,
+  sectionLabel: {
+    fontSize: 13,
     fontWeight: '700',
+    color: colors.textMuted,
     textTransform: 'uppercase',
-    letterSpacing: 1,
+    letterSpacing: 0.6,
   },
-  title: {
-    color: colors.textPrimary,
-    fontSize: 30,
-    fontWeight: '800',
-  },
-  subtitle: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  actionGrid: {
+  truckRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 8,
   },
-  card: {
-    backgroundColor: colors.surface,
+  truckChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 24,
-    padding: 18,
-    gap: 10,
+    backgroundColor: colors.surface,
   },
-  cardEyebrow: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
+  truckChipActive: {
+    borderColor: colors.info,
+    backgroundColor: '#EFF6FF',
   },
-  cardTitle: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  cardBody: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  cardMeta: {
-    color: colors.info,
+  truckChipText: {
     fontSize: 13,
     fontWeight: '600',
-  },
-  emptyCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: colors.borderSoft,
-  },
-  emptyText: {
     color: colors.textSecondary,
-    fontSize: 14,
+  },
+  truckChipTextActive: {
+    color: colors.info,
+  },
+  helper: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: -8,
+  },
+  meta: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textMuted,
+  },
+  disclaimer: {
+    fontSize: 12,
+    color: colors.textMuted,
+    lineHeight: 17,
   },
 });

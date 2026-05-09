@@ -1,148 +1,153 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { Disclaimer } from '../../components/ui/Disclaimer';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { ScreenHeader } from '../../components/ScreenHeader';
 import { Screen } from '../../components/ui/Screen';
-import { SectionHeader } from '../../components/ui/SectionHeader';
+import { LEGAL_DISCLAIMER } from '../../constants/legal';
 import { colors } from '../../constants/colors';
 import { useAppState } from '../../core/AppProvider';
 import { isSupabaseConfigured } from '../../lib/supabase/client';
+import { RootStackParamList } from '../../navigation/types';
 
 export function SettingsScreen() {
-  const navigation = useNavigation<any>();
-  const { data, reopenOnboarding } = useAppState();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { businessProfile, resetOnboardingPreview, signOut } = useAppState();
 
   return (
     <Screen>
-      <View style={styles.hero}>
-        <Text style={styles.title}>Settings</Text>
-        <Text style={styles.subtitle}>Profile, business controls, team roles, reminders, future billing, and admin-ready placeholders.</Text>
-      </View>
+      <ScreenHeader subtitle="Profile, fleet, reminders, and jurisdictions stay editable here." title="Settings" />
 
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Account profile</Text>
-        <Text style={styles.value}>{data.user.fullName}</Text>
-        <Text style={styles.meta}>{data.user.email}</Text>
-        <Text style={styles.meta}>{data.user.phone}</Text>
-      </View>
+      <SettingsRow
+        helper={businessProfile?.businessName ?? 'Complete onboarding to fill this in'}
+        label="Business profile"
+        onPress={() => navigation.navigate('BusinessProfile')}
+      />
+      <SettingsRow label="Trucks" onPress={() => navigation.navigate('TrucksSettings')} />
+      <SettingsRow label="Notification settings" onPress={() => navigation.navigate('NotificationSettings')} />
+      <SettingsRow label="Jurisdictions" onPress={() => navigation.navigate('JurisdictionsSettings')} />
+      <SettingsRow label="Disclaimer" onPress={() => navigation.navigate('Disclaimer')} />
 
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Business profile</Text>
-        <Text style={styles.value}>{data.business.legalName}</Text>
-        <Text style={styles.meta}>{data.business.address}</Text>
-        <Text style={styles.meta}>Plan: {data.business.planTier}</Text>
-        <Text style={styles.meta}>Quiet hours: {data.business.quietHours}</Text>
-      </View>
-
-      <SectionHeader title="Management" caption="MVP navigation for operational screens." />
-      <SettingsLink label="Manage Trucks" onPress={() => navigation.navigate('ManageTrucks')} />
-      <SettingsLink label="Contacts" onPress={() => navigation.navigate('Contacts')} />
-      <SettingsLink label="Events" onPress={() => navigation.navigate('Events')} />
-      <SettingsLink label="Manage Jurisdictions" onPress={() => {}} helper="Placeholder for future admin-backed jurisdiction management." />
-      <SettingsLink label="Manage Users / Team" onPress={() => {}} helper="Roles already supported in the data model." />
-
-      <SectionHeader title="Notifications" caption="Push reminder structure is scaffolded." />
-      <View style={styles.card}>
-        <Text style={styles.value}>{data.business.notificationsEnabled ? 'Push enabled' : 'Push disabled'}</Text>
-        <Text style={styles.meta}>Default escalation: 60, 30, 14, 7, 1, day-of, overdue</Text>
-      </View>
-
-      <SectionHeader title="Platform readiness" caption="Future monetization and integrations." />
-      <View style={styles.card}>
-        <Text style={styles.meta}>Supabase configured: {isSupabaseConfigured() ? 'Yes' : 'No - placeholder ready'}</Text>
-        <Text style={styles.meta}>Billing: placeholder only</Text>
-        <Text style={styles.meta}>SMS reminders: reserved for paid plans later</Text>
-        <Text style={styles.meta}>Data export: placeholder only</Text>
+      <View style={styles.metaCard}>
+        <Text style={styles.meta}>Supabase configured: {isSupabaseConfigured() ? 'Yes' : 'No (env keys not set)'}</Text>
+        <Text style={styles.meta}>Backend sync is not enabled in this skeleton.</Text>
       </View>
 
       <Pressable
         onPress={() => {
-          reopenOnboarding();
-          navigation.navigate('Onboarding');
+          resetOnboardingPreview();
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Onboarding' }],
+          });
         }}
-        style={styles.secondaryButton}
+        style={styles.secondary}
       >
-        <Text style={styles.secondaryButtonText}>Preview Onboarding Again</Text>
+        <Text style={styles.secondaryText}>Preview onboarding flow again</Text>
       </Pressable>
 
-      <Disclaimer />
+      <Pressable
+        onPress={() => {
+          Alert.alert('Sign out', 'Use mock sign out?', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Sign out',
+              style: 'destructive',
+              onPress: () => {
+                signOut();
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Login' }],
+                });
+              },
+            },
+          ]);
+        }}
+        style={styles.signOut}
+      >
+        <Text style={styles.signOutText}>Sign out</Text>
+      </Pressable>
+
+      <Text style={styles.disclaimer}>{LEGAL_DISCLAIMER}</Text>
     </Screen>
   );
 }
 
-function SettingsLink({ helper, label, onPress }: { label: string; onPress: () => void; helper?: string }) {
+function SettingsRow({ helper, label, onPress }: { label: string; onPress: () => void; helper?: string }) {
   return (
-    <Pressable onPress={onPress} style={styles.linkCard}>
-      <Text style={styles.linkLabel}>{label}</Text>
-      {helper ? <Text style={styles.linkHelper}>{helper}</Text> : null}
+    <Pressable onPress={onPress} style={styles.row}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        {helper ? <Text style={styles.rowHelper}>{helper}</Text> : null}
+      </View>
+      <Text style={styles.chevron}>›</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: {
-    gap: 10,
-  },
-  title: {
-    color: colors.textPrimary,
-    fontSize: 30,
-    fontWeight: '800',
-  },
-  subtitle: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 24,
-    padding: 18,
-    gap: 8,
-  },
-  sectionTitle: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  value: {
-    color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  meta: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  linkCard: {
-    backgroundColor: colors.surface,
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.borderSoft,
-    borderRadius: 20,
-    padding: 16,
+    backgroundColor: colors.surface,
+    gap: 8,
+  },
+  rowLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  rowHelper: {
+    fontSize: 13,
+    color: colors.textMuted,
+    marginTop: 4,
+  },
+  chevron: {
+    fontSize: 22,
+    color: colors.textMuted,
+    fontWeight: '300',
+  },
+  metaCard: {
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
     gap: 6,
   },
-  linkLabel: {
-    color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  linkHelper: {
-    color: colors.textSecondary,
+  meta: {
     fontSize: 13,
+    color: colors.textSecondary,
     lineHeight: 18,
   },
-  secondaryButton: {
-    borderWidth: 1,
-    borderColor: colors.info,
-    borderRadius: 18,
-    paddingVertical: 16,
+  secondary: {
+    paddingVertical: 14,
     alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  secondaryButtonText: {
-    color: colors.info,
+  secondaryText: {
     fontSize: 15,
     fontWeight: '700',
+    color: colors.info,
+  },
+  signOut: {
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  signOutText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.danger,
+  },
+  disclaimer: {
+    fontSize: 12,
+    color: colors.textMuted,
+    lineHeight: 17,
   },
 });

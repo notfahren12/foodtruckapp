@@ -1,209 +1,123 @@
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { colors, gradients } from '../../constants/colors';
+import { useState } from 'react';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { AppButton } from '../../components/AppButton';
+import { ScreenHeader } from '../../components/ScreenHeader';
 import { Screen } from '../../components/ui/Screen';
-import { Disclaimer } from '../../components/ui/Disclaimer';
-import { useAppState } from '../../core/AppProvider';
+import { LEGAL_DISCLAIMER } from '../../constants/legal';
+import { colors } from '../../constants/colors';
+import { BusinessProfile, emptyProfile, useAppState } from '../../core/AppProvider';
+import { RootStackParamList } from '../../navigation/types';
 
-export function OnboardingScreen() {
-  const navigation = useNavigation<any>();
-  const { completeOnboarding, data } = useAppState();
+type Props = NativeStackScreenProps<RootStackParamList, 'Onboarding'>;
 
-  const questions = [
-    ['Propane setup', data.questionnaire.usePropane],
-    ['Generator usage', data.questionnaire.useGenerator],
-    ['Fry food', data.questionnaire.fryFood],
-    ['Hood system', data.questionnaire.hoodSystem],
-    ['Fire suppression', data.questionnaire.fireSuppressionSystem],
-    ['Multiple cities', data.questionnaire.multipleCities],
-    ['Temporary events', data.questionnaire.temporaryEvents],
-    ['Commissary kitchen', data.questionnaire.commissaryKitchen],
-    ['Employees', data.questionnaire.employees],
-    ['Prepackaged only', data.questionnaire.prepackagedOnly],
-    ['Event permits', data.questionnaire.eventPermits],
-    ['COIs for events', data.questionnaire.insuranceCoiForEvents],
-  ] as const;
+export function OnboardingScreen({ navigation }: Props) {
+  const { completeOnboarding } = useAppState();
+  const [form, setForm] = useState<BusinessProfile>(emptyProfile);
+
+  function update<K extends keyof BusinessProfile>(key: K, value: BusinessProfile[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function handleContinue() {
+    const truckCount = Number(form.truckCount);
+    completeOnboarding({
+      ...form,
+      truckCount: Number.isFinite(truckCount) && truckCount > 0 ? Math.floor(truckCount) : 1,
+    });
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'MainTabs' }],
+    });
+  }
 
   return (
-    <Screen padded>
-      <LinearGradient colors={gradients.hero} style={styles.hero}>
-        <View style={styles.heroIcon}>
-          <Ionicons color={colors.textPrimary} name="restaurant" size={28} />
-        </View>
-        <Text style={styles.heroTitle}>Food Truck Permit Tracker</Text>
-        <Text style={styles.heroBody}>
-          A Central Alabama compliance assistant for permits, inspections, renewals, documents, events, and reminders.
-        </Text>
-      </LinearGradient>
+    <Screen>
+      <ScreenHeader
+        subtitle="Tell us about your operation so the dashboard can stay scoped to your trucks and cities."
+        title="Business setup"
+      />
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>First-run setup</Text>
-        {[
-          'Create account',
-          'Create business',
-          'Add first truck',
-          'Select jurisdictions',
-          'Answer setup questionnaire',
-          'Upload documents',
-          'Enter known expiration dates',
-          'Generate checklist',
-          'Enable notifications',
-        ].map((step, index) => (
-          <View key={step} style={styles.stepRow}>
-            <View style={styles.stepBadge}>
-              <Text style={styles.stepIndex}>{index + 1}</Text>
-            </View>
-            <Text style={styles.stepText}>{step}</Text>
-          </View>
-        ))}
+      <Field label="Business name" onChange={(v) => update('businessName', v)} value={form.businessName} />
+      <Field label="Owner name" onChange={(v) => update('ownerName', v)} value={form.ownerName} />
+      <Field label="City" onChange={(v) => update('city', v)} value={form.city} />
+      <Field label="County" onChange={(v) => update('county', v)} value={form.county} />
+
+      <View style={styles.field}>
+        <Text style={styles.label}>Number of food trucks</Text>
+        <TextInput
+          keyboardType="number-pad"
+          onChangeText={(v) => update('truckCount', Number(v.replace(/[^0-9]/g, '')) || 0)}
+          placeholder="1"
+          placeholderTextColor={colors.textMuted}
+          style={styles.input}
+          value={form.truckCount ? String(form.truckCount) : ''}
+        />
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Seed business preview</Text>
-        <Text style={styles.cardBody}>{data.business.legalName}</Text>
-        <Text style={styles.cardCaption}>2 trucks • Birmingham, Hoover, Pelham, Alabaster • Pro plan structure</Text>
+      <View style={styles.field}>
+        <Text style={styles.label}>Primary operating cities</Text>
+        <TextInput
+          multiline
+          onChangeText={(v) => update('primaryOperatingCities', v)}
+          placeholder="e.g. Birmingham, Hoover, Pelham"
+          placeholderTextColor={colors.textMuted}
+          style={[styles.input, styles.textArea]}
+          value={form.primaryOperatingCities}
+        />
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Questionnaire logic</Text>
-        <View style={styles.tagGrid}>
-          {questions.map(([label, value]) => (
-            <View key={label} style={[styles.tag, value ? styles.tagOn : styles.tagOff]}>
-              <Text style={[styles.tagText, value ? styles.tagTextOn : styles.tagTextOff]}>
-                {label}: {value ? 'Yes' : 'No'}
-              </Text>
-            </View>
-          ))}
-        </View>
-      </View>
+      <AppButton title="Continue to app" onPress={handleContinue} />
 
-      <Disclaimer />
-
-      <Pressable
-        onPress={() => {
-          completeOnboarding();
-          navigation.replace('MainTabs');
-        }}
-        style={styles.primaryButton}
-      >
-        <Text style={styles.primaryButtonText}>Continue to Dashboard</Text>
-      </Pressable>
+      <Text style={styles.disclaimer}>{LEGAL_DISCLAIMER}</Text>
     </Screen>
   );
 }
 
+function Field({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput onChangeText={onChange} placeholder={label} placeholderTextColor={colors.textMuted} style={styles.input} value={value} />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  hero: {
-    borderRadius: 28,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 14,
+  field: {
+    gap: 6,
   },
-  heroIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: colors.surfaceAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroTitle: {
-    color: colors.textPrimary,
-    fontSize: 28,
-    fontWeight: '800',
-  },
-  heroBody: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 24,
-    padding: 18,
-    gap: 12,
-  },
-  cardTitle: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  cardBody: {
-    color: colors.textPrimary,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  cardCaption: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  stepRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  stepBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 10,
-    backgroundColor: colors.backgroundElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepIndex: {
-    color: colors.info,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  stepText: {
-    color: colors.textSecondary,
+  label: {
     fontSize: 14,
     fontWeight: '600',
-  },
-  tagGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  tag: {
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  tagOn: {
-    backgroundColor: `${colors.success}14`,
-    borderColor: `${colors.success}35`,
-  },
-  tagOff: {
-    backgroundColor: `${colors.border}44`,
-    borderColor: colors.border,
-  },
-  tagText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  tagTextOn: {
-    color: colors.success,
-  },
-  tagTextOff: {
     color: colors.textSecondary,
   },
-  primaryButton: {
-    backgroundColor: colors.info,
-    borderRadius: 20,
-    paddingVertical: 18,
-    alignItems: 'center',
-  },
-  primaryButtonText: {
-    color: colors.textPrimary,
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 16,
-    fontWeight: '800',
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
+  },
+  textArea: {
+    minHeight: 88,
+    textAlignVertical: 'top',
+  },
+  disclaimer: {
+    fontSize: 12,
+    color: colors.textMuted,
+    lineHeight: 17,
+    marginTop: 8,
   },
 });

@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { colors } from '../constants/colors';
-import { AppProvider } from './AppProvider';
 import { RootNavigator } from '../navigation/RootNavigator';
+import { AppProvider } from './AppProvider';
 
 export function AppShell() {
   const [queryClient] = useState(() => new QueryClient());
@@ -15,7 +15,7 @@ export function AppShell() {
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
           <AppProvider>
-            <StatusBar style="light" />
+            <StatusBar style="dark" />
             <RootNavigator />
           </AppProvider>
         </QueryClientProvider>

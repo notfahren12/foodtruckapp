@@ -2,21 +2,21 @@ import { Ionicons } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { useMemo } from 'react';
 import { DashboardScreen } from '../screens/dashboard/DashboardScreen';
-import { ChecklistScreen } from '../screens/checklist/ChecklistScreen';
-import { RequirementDetailScreen } from '../screens/checklist/RequirementDetailScreen';
 import { DocumentsScreen } from '../screens/documents/DocumentsScreen';
-import { DocumentDetailScreen } from '../screens/documents/DocumentDetailScreen';
-import { CalendarScreen } from '../screens/calendar/CalendarScreen';
-import { AppointmentDetailScreen } from '../screens/calendar/AppointmentDetailScreen';
-import { EventsScreen } from '../screens/events/EventsScreen';
-import { EventDetailScreen } from '../screens/events/EventDetailScreen';
-import { ContactsScreen } from '../screens/contacts/ContactsScreen';
-import { SettingsScreen } from '../screens/settings/SettingsScreen';
-import { ManageTrucksScreen } from '../screens/trucks/ManageTrucksScreen';
-import { EditTruckScreen } from '../screens/trucks/EditTruckScreen';
+import { InspectionsScreen } from '../screens/inspections/InspectionsScreen';
+import { ForgotPasswordScreen } from '../screens/auth/ForgotPasswordScreen';
+import { LoginScreen } from '../screens/auth/LoginScreen';
+import { SignupScreen } from '../screens/auth/SignupScreen';
 import { OnboardingScreen } from '../screens/onboarding/OnboardingScreen';
+import { PermitDetailScreen } from '../screens/permits/PermitDetailScreen';
+import { PermitsScreen } from '../screens/permits/PermitsScreen';
+import { BusinessProfileScreen } from '../screens/settings/BusinessProfileScreen';
+import { DisclaimerScreen } from '../screens/settings/DisclaimerScreen';
+import { JurisdictionsScreen } from '../screens/settings/JurisdictionsScreen';
+import { NotificationSettingsScreen } from '../screens/settings/NotificationSettingsScreen';
+import { SettingsScreen } from '../screens/settings/SettingsScreen';
+import { TrucksScreen } from '../screens/settings/TrucksScreen';
 import { colors } from '../constants/colors';
 import { useAppState } from '../core/AppProvider';
 import { MainTabParamList, RootStackParamList } from './types';
@@ -32,66 +32,70 @@ function MainTabs() {
         headerShown: false,
         tabBarStyle: {
           backgroundColor: colors.surface,
-          borderTopColor: colors.border,
-          height: 76,
-          paddingTop: 8,
-          paddingBottom: 12,
+          borderTopColor: colors.borderSoft,
+          paddingTop: 6,
+          height: 72,
         },
-        tabBarActiveTintColor: colors.textPrimary,
+        tabBarActiveTintColor: colors.info,
         tabBarInactiveTintColor: colors.textMuted,
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
         tabBarIcon: ({ color, size }) => {
           const iconName = (() => {
             switch (route.name) {
               case 'Dashboard':
-                return 'grid';
-              case 'Calendar':
-                return 'calendar';
-              case 'Documents':
+                return 'home';
+              case 'Permits':
                 return 'document-text';
-              case 'Checklist':
-                return 'checkmark-circle';
+              case 'Documents':
+                return 'folder-open';
+              case 'Inspections':
+                return 'shield-checkmark';
               case 'Settings':
                 return 'settings';
             }
           })();
-
           return <Ionicons color={color} name={iconName} size={size} />;
         },
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen name="Calendar" component={CalendarScreen} />
+      <Tab.Screen name="Permits" component={PermitsScreen} />
       <Tab.Screen name="Documents" component={DocumentsScreen} />
-      <Tab.Screen name="Checklist" component={ChecklistScreen} />
+      <Tab.Screen name="Inspections" component={InspectionsScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
   );
 }
 
 export function RootNavigator() {
-  const { hasCompletedOnboarding } = useAppState();
+  const { hasCompletedOnboarding, isAuthenticated } = useAppState();
 
-  const initialRoute = useMemo(() => (hasCompletedOnboarding ? 'MainTabs' : 'Onboarding'), [hasCompletedOnboarding]);
+  const initialRouteName = !isAuthenticated
+    ? 'Login'
+    : !hasCompletedOnboarding
+      ? 'Onboarding'
+      : 'MainTabs';
 
   return (
     <NavigationContainer theme={navigationTheme}>
       <Stack.Navigator
-        initialRouteName={initialRoute}
+        initialRouteName={initialRouteName}
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        {!hasCompletedOnboarding ? <Stack.Screen name="Onboarding" component={OnboardingScreen} /> : null}
+        <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Signup" component={SignupScreen} />
+        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+        <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="MainTabs" component={MainTabs} />
-        <Stack.Screen name="RequirementDetail" component={RequirementDetailScreen} />
-        <Stack.Screen name="DocumentDetail" component={DocumentDetailScreen} />
-        <Stack.Screen name="AppointmentDetail" component={AppointmentDetailScreen} />
-        <Stack.Screen name="Events" component={EventsScreen} />
-        <Stack.Screen name="EventDetail" component={EventDetailScreen} />
-        <Stack.Screen name="Contacts" component={ContactsScreen} />
-        <Stack.Screen name="ManageTrucks" component={ManageTrucksScreen} />
-        <Stack.Screen name="EditTruck" component={EditTruckScreen} />
+        <Stack.Screen name="PermitDetail" component={PermitDetailScreen} />
+        <Stack.Screen name="BusinessProfile" component={BusinessProfileScreen} />
+        <Stack.Screen name="TrucksSettings" component={TrucksScreen} />
+        <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+        <Stack.Screen name="JurisdictionsSettings" component={JurisdictionsScreen} />
+        <Stack.Screen name="Disclaimer" component={DisclaimerScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -30,7 +30,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    paddingBottom: 120,
+    paddingBottom: 100,
   },
   padded: {
     paddingHorizontal: 20,
@@ -40,7 +40,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 20,
     paddingTop: 12,
-    backgroundColor: colors.backgroundElevated,
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.borderSoft,
   },
