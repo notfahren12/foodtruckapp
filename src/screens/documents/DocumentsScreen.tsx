@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -49,8 +50,14 @@ import {
   SAMPLE_BIRMINGHAM_MOBILE_FOOD_UNIT_PERMIT,
   type ParsedDocumentResult,
 } from '../../lib/documentParser';
-import { extractTextFromImage } from '../../lib/ocr';
+import {
+  type OcrDiagnosticsSnapshot,
+  scanImageUriWithPreprocess,
+  snapshotFromScan,
+} from '../../lib/imageOcrPipeline';
 import { deleteDocumentFile, getDocumentSignedUrl, uploadDocumentFile } from '../../lib/storage';
+
+const OCR_TEST_SAMPLE_PNG = require('../../../assets/ocr-test-sample.png') as number;
 
 const DOCUMENT_TYPE_OPTIONS: DocumentType[] = [
   'business_license',
@@ -185,6 +192,11 @@ export function DocumentsScreen() {
   const [ocrRawText, setOcrRawText] = useState('');
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [ocrUnsupported, setOcrUnsupported] = useState(false);
+  const [ocrDiagnostics, setOcrDiagnostics] = useState<OcrDiagnosticsSnapshot | null>(null);
+  const [scanDetailsExpanded, setScanDetailsExpanded] = useState(false);
+  const [pastedText, setPastedText] = useState('');
+  /** Built-in PNG OCR returned no text — native module likely inactive (e.g. Expo Go). */
+  const [builtinOcrReturnedEmpty, setBuiltinOcrReturnedEmpty] = useState(false);
 
   const [picker, setPicker] = useState<null | 'documentType' | 'truck' | 'permit' | 'jurisdiction'>(null);
   const [permitSearch, setPermitSearch] = useState('');
@@ -361,6 +373,10 @@ export function DocumentsScreen() {
     setOcrRawText('');
     setOcrError(null);
     setOcrUnsupported(false);
+    setOcrDiagnostics(null);
+    setScanDetailsExpanded(false);
+    setPastedText('');
+    setBuiltinOcrReturnedEmpty(false);
   }
 
   function startCreate() {
@@ -377,6 +393,10 @@ export function DocumentsScreen() {
     setOcrRawText('');
     setOcrError(null);
     setOcrUnsupported(false);
+    setOcrDiagnostics(null);
+    setScanDetailsExpanded(false);
+    setPastedText('');
+    setBuiltinOcrReturnedEmpty(false);
   }
 
   function enterManualMode() {
@@ -390,6 +410,10 @@ export function DocumentsScreen() {
     setOcrRawText('');
     setOcrError(null);
     setOcrUnsupported(false);
+    setOcrDiagnostics(null);
+    setScanDetailsExpanded(false);
+    setPastedText('');
+    setBuiltinOcrReturnedEmpty(false);
   }
 
   function startEdit(document: DocumentRow) {
@@ -416,6 +440,10 @@ export function DocumentsScreen() {
     setOcrRawText('');
     setOcrError(null);
     setOcrUnsupported(false);
+    setOcrDiagnostics(null);
+    setScanDetailsExpanded(false);
+    setPastedText('');
+    setBuiltinOcrReturnedEmpty(false);
   }
 
   function applyParsedResult(result: ParsedDocumentResult) {
@@ -456,6 +484,60 @@ export function DocumentsScreen() {
     applyParsedResult(parsed);
   }
 
+  function parsePastedText() {
+    const raw = pastedText.trim();
+    if (!raw) {
+      setErrorMessage('Paste some text first.');
+      return;
+    }
+    setErrorMessage(null);
+    setOcrRawText(raw);
+    setOcrAttempted(true);
+    setOcrDiagnostics(null);
+    setOcrError(null);
+    setOcrUnsupported(false);
+    setBuiltinOcrReturnedEmpty(false);
+    const parsed = parseDocumentText(raw, knownJurisdictions, trucks, allBusinessPermits);
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log('[Document OCR] pasted text parse result:', parsed);
+    }
+    applyParsedResult(parsed);
+  }
+
+  async function runBuiltinOcrSampleImage() {
+    const resolved = Image.resolveAssetSource(OCR_TEST_SAMPLE_PNG);
+    const uri = resolved.uri;
+    setScanning(true);
+    setLastScanUri(uri);
+    setBuiltinOcrReturnedEmpty(false);
+    try {
+      const full = await scanImageUriWithPreprocess(uri, 'ocr-test-sample.png', 'image/png');
+      setOcrDiagnostics(snapshotFromScan(full));
+      setOcrAttempted(true);
+      setOcrRawText(full.ocr.text);
+      setOcrError(full.ocr.error);
+      setOcrUnsupported(full.ocr.unsupported);
+
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.log('[Document OCR] built-in sample uri:', uri);
+        console.log('[Document OCR] built-in sample full scan:', full);
+      }
+
+      const empty = !full.ocr.text.trim();
+      if (empty) {
+        setBuiltinOcrReturnedEmpty(true);
+        setAutoDetected(null);
+        setCreateStep('form');
+        return;
+      }
+      setBuiltinOcrReturnedEmpty(false);
+      const parsed = parseDocumentText(full.ocr.text, knownJurisdictions, trucks, allBusinessPermits);
+      applyParsedResult(parsed);
+    } finally {
+      setScanning(false);
+    }
+  }
+
   async function scanIfImage(args: { uri: string; fileName?: string | null; mimeType?: string | null }) {
     if (isPdfOrDocument(args.fileName, args.mimeType)) {
       setCreateStep('form');
@@ -464,29 +546,36 @@ export function DocumentsScreen() {
       setOcrError(null);
       setOcrUnsupported(false);
       setLastScanUri('');
+      setOcrDiagnostics(null);
+      setBuiltinOcrReturnedEmpty(false);
       Alert.alert('PDF scanning coming soon', 'PDF scanning coming soon.');
       return;
     }
     setScanning(true);
     setLastScanUri(args.uri);
+    setBuiltinOcrReturnedEmpty(false);
     try {
-      const ocr = await extractTextFromImage(args.uri);
+      const full = await scanImageUriWithPreprocess(args.uri, args.fileName, args.mimeType);
+      setOcrDiagnostics(snapshotFromScan(full));
       setOcrAttempted(true);
-      setOcrRawText(ocr.text);
-      setOcrError(ocr.error);
-      setOcrUnsupported(ocr.unsupported);
+      setOcrRawText(full.ocr.text);
+      setOcrError(full.ocr.error);
+      setOcrUnsupported(full.ocr.unsupported);
 
       if (typeof __DEV__ !== 'undefined' && __DEV__) {
-        console.log('[Document OCR] uri:', args.uri);
-        console.log('[Document OCR] raw text length:', ocr.text.length);
-        console.log('[Document OCR] first 500 chars:', ocr.text.slice(0, 500));
-        console.log('[Document OCR] unsupported:', ocr.unsupported);
-        if (ocr.error) {
-          console.warn('[Document OCR] OCR error:', ocr.error);
+        console.log('[Document OCR] source uri:', args.uri);
+        console.log('[Document OCR] processed uri:', full.processedUri);
+        console.log('[Document OCR] preprocess error:', full.preprocessError);
+        console.log('[Document OCR] raw text length:', full.ocr.text.length);
+        console.log('[Document OCR] library lines:', full.ocr.rawLines.length);
+        console.log('[Document OCR] first 500 chars:', full.ocr.text.slice(0, 500));
+        console.log('[Document OCR] unsupported:', full.ocr.unsupported);
+        if (full.ocr.error) {
+          console.warn('[Document OCR] OCR thrown error:', full.ocr.error);
         }
       }
 
-      if (!ocr.text.trim()) {
+      if (!full.ocr.text.trim()) {
         setAutoDetected(null);
         setCreateStep('form');
         if (typeof __DEV__ !== 'undefined' && __DEV__) {
@@ -495,7 +584,7 @@ export function DocumentsScreen() {
         return;
       }
 
-      const parsed = parseDocumentText(ocr.text, knownJurisdictions, trucks, allBusinessPermits);
+      const parsed = parseDocumentText(full.ocr.text, knownJurisdictions, trucks, allBusinessPermits);
       if (typeof __DEV__ !== 'undefined' && __DEV__) {
         console.log('[Document OCR] parsed result:', parsed);
       }
@@ -806,34 +895,113 @@ export function DocumentsScreen() {
               </View>
               <AppButton title="Enter manually" onPress={enterManualMode} variant="outline" />
               {typeof __DEV__ !== 'undefined' && __DEV__ ? (
-                <AppButton
-                  title="Test parser with sample permit text"
-                  onPress={runSampleParserTest}
-                  variant="outline"
-                />
+                <>
+                  <AppButton
+                    title="Test parser with sample permit text"
+                    onPress={runSampleParserTest}
+                    variant="outline"
+                  />
+                  <AppButton
+                    title="Test OCR with built-in sample image"
+                    onPress={() => void runBuiltinOcrSampleImage()}
+                    variant="outline"
+                  />
+                </>
               ) : null}
             </AppCard>
           ) : (
             <AppCard title={editingDocument ? 'Edit document' : 'Review document'}>
               {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
+              {typeof __DEV__ !== 'undefined' && __DEV__ ? (
+                <Text style={styles.devImageQualityNote}>
+                  AI-generated document images may not scan reliably. Real phone photos or clean PDF/image exports
+                  usually work better.
+                </Text>
+              ) : null}
+
+              {typeof __DEV__ !== 'undefined' && __DEV__ && (ocrUnsupported || builtinOcrReturnedEmpty) ? (
+                <Text style={styles.devOcrEnvWarn}>
+                  OCR is not available in this build. Local OCR may require a custom development build instead of Expo
+                  Go.
+                </Text>
+              ) : null}
+
               {!editingDocument && ocrAttempted ? (
                 <View style={styles.detectedTextPanel}>
                   <Text style={styles.detectedTextHeading}>Detected text</Text>
-                  {typeof __DEV__ !== 'undefined' && __DEV__ && lastScanUri ? (
+
+                  {ocrDiagnostics ? (
+                    <View style={styles.diagSection}>
+                      <Pressable
+                        onPress={() => setScanDetailsExpanded((prev) => !prev)}
+                        style={styles.detectedTextToggle}
+                      >
+                        <Text style={styles.detectedTextToggleLabel}>
+                          {scanDetailsExpanded ? 'Hide OCR diagnostics' : 'Show OCR diagnostics'}
+                        </Text>
+                      </Pressable>
+                      {scanDetailsExpanded ? (
+                        <View style={styles.diagBody}>
+                          <Text style={styles.diagLine} selectable>
+                            Selected image URI: {ocrDiagnostics.sourceUri}
+                          </Text>
+                          <Text style={styles.diagLine} selectable>
+                            Processed for OCR URI: {ocrDiagnostics.processedUri}
+                          </Text>
+                          <Text style={styles.diagLine}>
+                            Type / extension: {ocrDiagnostics.mimeType ?? '—'} {ocrDiagnostics.extension ?? ''}
+                          </Text>
+                          <Text style={styles.diagLine}>
+                            Original size:{' '}
+                            {ocrDiagnostics.width != null && ocrDiagnostics.height != null
+                              ? `${ocrDiagnostics.width} × ${ocrDiagnostics.height} px`
+                              : 'unknown'}
+                          </Text>
+                          <Text style={styles.diagLine}>
+                            File size:{' '}
+                            {ocrDiagnostics.fileSizeBytes != null
+                              ? `${(ocrDiagnostics.fileSizeBytes / 1024).toFixed(1)} KB`
+                              : 'unknown'}
+                          </Text>
+                          <Text style={styles.diagLine}>
+                            After preprocess:{' '}
+                            {ocrDiagnostics.processedWidth != null && ocrDiagnostics.processedHeight != null
+                              ? `${ocrDiagnostics.processedWidth} × ${ocrDiagnostics.processedHeight} px`
+                              : 'same as source or skipped'}
+                          </Text>
+                          {ocrDiagnostics.preprocessError ? (
+                            <Text style={styles.devOcrError}>Preprocess error: {ocrDiagnostics.preprocessError}</Text>
+                          ) : null}
+                          <Text style={styles.diagLine}>OCR library line count: {ocrDiagnostics.libraryLineCount}</Text>
+                          <Text style={styles.diagLine}>OCR text length: {ocrDiagnostics.ocrTextLength}</Text>
+                          {ocrDiagnostics.ocrThrownError ? (
+                            <Text style={styles.devOcrError}>OCR thrown error: {ocrDiagnostics.ocrThrownError}</Text>
+                          ) : null}
+                          <Text style={styles.diagLine}>OCR unsupported flag: {String(ocrDiagnostics.ocrUnsupported)}</Text>
+                          <Text style={styles.diagMono} selectable>
+                            Library lines (sample): {ocrDiagnostics.libraryLinesSample}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  {typeof __DEV__ !== 'undefined' && __DEV__ && lastScanUri && !ocrDiagnostics ? (
                     <Text style={styles.devMuted} selectable>
                       Scan URI: {lastScanUri}
                     </Text>
                   ) : null}
-                  {typeof __DEV__ !== 'undefined' && __DEV__ && ocrUnsupported ? (
+                  {typeof __DEV__ !== 'undefined' && __DEV__ && ocrUnsupported && !ocrDiagnostics ? (
                     <Text style={styles.devOcrWarn}>
                       On-device OCR is not available in this runtime (e.g. some Expo Go builds). Use a development
                       build if scans always return empty text.
                     </Text>
                   ) : null}
-                  {typeof __DEV__ !== 'undefined' && __DEV__ && ocrError ? (
+                  {typeof __DEV__ !== 'undefined' && __DEV__ && ocrError && !ocrDiagnostics ? (
                     <Text style={styles.devOcrError}>OCR error: {ocrError}</Text>
                   ) : null}
+
                   {!ocrRawText.trim() ? (
                     <>
                       <Text style={styles.detectedEmpty}>No text detected from this image.</Text>
@@ -861,12 +1029,30 @@ export function DocumentsScreen() {
                 </View>
               ) : null}
 
+              {!editingDocument && createStep === 'form' ? (
+                <View style={styles.pastePanel}>
+                  <Text style={styles.pasteTitle}>Paste detected text manually</Text>
+                  <TextInput
+                    value={pastedText}
+                    onChangeText={setPastedText}
+                    placeholder="Paste text from the document here…"
+                    placeholderTextColor={colors.textMuted}
+                    style={[styles.input, styles.pasteInput]}
+                    multiline
+                  />
+                  <AppButton title="Parse pasted text" onPress={parsePastedText} variant="outline" />
+                </View>
+              ) : null}
+
               {typeof __DEV__ !== 'undefined' && __DEV__ && !editingDocument ? (
-                <AppButton
-                  title="Test parser with sample permit text"
-                  onPress={runSampleParserTest}
-                  variant="outline"
-                />
+                <>
+                  <AppButton title="Test parser with sample permit text" onPress={runSampleParserTest} variant="outline" />
+                  <AppButton
+                    title="Test OCR with built-in sample image"
+                    onPress={() => void runBuiltinOcrSampleImage()}
+                    variant="outline"
+                  />
+                </>
               ) : null}
 
               {autoDetected ? (
@@ -1393,6 +1579,55 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.danger,
     marginBottom: 4,
+  },
+  devImageQualityNote: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.textMuted,
+    marginBottom: 10,
+  },
+  devOcrEnvWarn: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    color: colors.warning,
+    marginBottom: 10,
+  },
+  diagSection: {
+    marginBottom: 8,
+  },
+  diagBody: {
+    gap: 6,
+    marginTop: 6,
+  },
+  diagLine: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: colors.textSecondary,
+  },
+  diagMono: {
+    fontSize: 10,
+    lineHeight: 14,
+    color: colors.textMuted,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  pastePanel: {
+    marginBottom: 14,
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    backgroundColor: colors.surface,
+  },
+  pasteTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  pasteInput: {
+    minHeight: 100,
+    textAlignVertical: 'top',
   },
   previewCard: {
     borderRadius: 12,

@@ -11,6 +11,8 @@ import { extractTextFromImage as extractFromModule, isSupported } from 'expo-tex
 export type OcrExtractResult = {
   /** Normalized joined lines from the native extractor (may be empty). */
   text: string;
+  /** Raw line array from the native module (before join); empty when unsupported / error. */
+  rawLines: string[];
   /** Error message when the native module throws; null on success. */
   error: string | null;
   /** True when `isSupported` is false (e.g. web or unsupported runtime). */
@@ -23,23 +25,24 @@ export type OcrExtractResult = {
  */
 export async function extractTextFromImage(uri: string): Promise<OcrExtractResult> {
   if (typeof uri !== 'string' || !uri.trim()) {
-    return { text: '', error: null, unsupported: false };
+    return { text: '', rawLines: [], error: null, unsupported: false };
   }
 
   if (!isSupported) {
-    return { text: '', error: null, unsupported: true };
+    return { text: '', rawLines: [], error: null, unsupported: true };
   }
 
   try {
     const lines = await extractFromModule(uri.trim());
     if (!Array.isArray(lines)) {
-      return { text: '', error: null, unsupported: false };
+      return { text: '', rawLines: [], error: null, unsupported: false };
     }
-    const text = lines.join('\n').trim();
-    return { text, error: null, unsupported: false };
+    const rawLines = lines.map((l) => String(l));
+    const text = rawLines.join('\n').trim();
+    return { text, rawLines, error: null, unsupported: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn('OCR extract failed:', error);
-    return { text: '', error: message, unsupported: false };
+    return { text: '', rawLines: [], error: message, unsupported: false };
   }
 }
