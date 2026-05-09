@@ -44,7 +44,11 @@ import {
   updateTruckPermit,
 } from '../../lib/db';
 import { formatRelatedPermitLabel } from '../../lib/permitLabels';
-import { parseDocumentText, type ParsedDocumentResult } from '../../lib/documentParser';
+import {
+  parseDocumentText,
+  SAMPLE_BIRMINGHAM_MOBILE_FOOD_UNIT_PERMIT,
+  type ParsedDocumentResult,
+} from '../../lib/documentParser';
 import { extractTextFromImage } from '../../lib/ocr';
 import { deleteDocumentFile, getDocumentSignedUrl, uploadDocumentFile } from '../../lib/storage';
 
@@ -175,6 +179,12 @@ export function DocumentsScreen() {
   const [allBusinessPermits, setAllBusinessPermits] = useState<TruckPermitRow[]>([]);
   /** Add flow: upload picker first, then detail form after scan or manual entry. */
   const [createStep, setCreateStep] = useState<'upload' | 'form'>('upload');
+  /** Last image/document URI scanned (for dev logs). */
+  const [lastScanUri, setLastScanUri] = useState('');
+  const [ocrAttempted, setOcrAttempted] = useState(false);
+  const [ocrRawText, setOcrRawText] = useState('');
+  const [ocrError, setOcrError] = useState<string | null>(null);
+  const [ocrUnsupported, setOcrUnsupported] = useState(false);
 
   const [picker, setPicker] = useState<null | 'documentType' | 'truck' | 'permit' | 'jurisdiction'>(null);
   const [permitSearch, setPermitSearch] = useState('');
@@ -346,6 +356,11 @@ export function DocumentsScreen() {
     setPermitSearch('');
     setCreateStep('upload');
     setShowDetectedText(false);
+    setLastScanUri('');
+    setOcrAttempted(false);
+    setOcrRawText('');
+    setOcrError(null);
+    setOcrUnsupported(false);
   }
 
   function startCreate() {
@@ -357,6 +372,11 @@ export function DocumentsScreen() {
     setAutoDetected(null);
     setErrorMessage(null);
     setShowDetectedText(false);
+    setLastScanUri('');
+    setOcrAttempted(false);
+    setOcrRawText('');
+    setOcrError(null);
+    setOcrUnsupported(false);
   }
 
   function enterManualMode() {
@@ -365,6 +385,11 @@ export function DocumentsScreen() {
     setCreateStep('form');
     setShowDetectedText(false);
     setErrorMessage(null);
+    setLastScanUri('');
+    setOcrAttempted(false);
+    setOcrRawText('');
+    setOcrError(null);
+    setOcrUnsupported(false);
   }
 
   function startEdit(document: DocumentRow) {
@@ -386,6 +411,11 @@ export function DocumentsScreen() {
     setAutoDetected(null);
     setErrorMessage(null);
     setShowDetectedText(false);
+    setLastScanUri('');
+    setOcrAttempted(false);
+    setOcrRawText('');
+    setOcrError(null);
+    setOcrUnsupported(false);
   }
 
   function applyParsedResult(result: ParsedDocumentResult) {
@@ -412,21 +442,63 @@ export function DocumentsScreen() {
     return lowerName.endsWith('.pdf') || lowerMime.includes('pdf');
   }
 
+  function runSampleParserTest() {
+    const sample = SAMPLE_BIRMINGHAM_MOBILE_FOOD_UNIT_PERMIT;
+    setLastScanUri('(sample permit text)');
+    setOcrAttempted(true);
+    setOcrRawText(sample);
+    setOcrError(null);
+    setOcrUnsupported(false);
+    const parsed = parseDocumentText(sample, knownJurisdictions, trucks, allBusinessPermits);
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log('[Document OCR] sample parser result:', parsed);
+    }
+    applyParsedResult(parsed);
+  }
+
   async function scanIfImage(args: { uri: string; fileName?: string | null; mimeType?: string | null }) {
     if (isPdfOrDocument(args.fileName, args.mimeType)) {
       setCreateStep('form');
+      setOcrAttempted(false);
+      setOcrRawText('');
+      setOcrError(null);
+      setOcrUnsupported(false);
+      setLastScanUri('');
       Alert.alert('PDF scanning coming soon', 'PDF scanning coming soon.');
       return;
     }
     setScanning(true);
+    setLastScanUri(args.uri);
     try {
-      const rawText = await extractTextFromImage(args.uri);
-      if (!rawText.trim()) {
+      const ocr = await extractTextFromImage(args.uri);
+      setOcrAttempted(true);
+      setOcrRawText(ocr.text);
+      setOcrError(ocr.error);
+      setOcrUnsupported(ocr.unsupported);
+
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.log('[Document OCR] uri:', args.uri);
+        console.log('[Document OCR] raw text length:', ocr.text.length);
+        console.log('[Document OCR] first 500 chars:', ocr.text.slice(0, 500));
+        console.log('[Document OCR] unsupported:', ocr.unsupported);
+        if (ocr.error) {
+          console.warn('[Document OCR] OCR error:', ocr.error);
+        }
+      }
+
+      if (!ocr.text.trim()) {
         setAutoDetected(null);
         setCreateStep('form');
+        if (typeof __DEV__ !== 'undefined' && __DEV__) {
+          console.log('[Document OCR] parsed result: (none — empty OCR text)');
+        }
         return;
       }
-      const parsed = parseDocumentText(rawText, knownJurisdictions, trucks, allBusinessPermits);
+
+      const parsed = parseDocumentText(ocr.text, knownJurisdictions, trucks, allBusinessPermits);
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.log('[Document OCR] parsed result:', parsed);
+      }
       applyParsedResult(parsed);
     } finally {
       setScanning(false);
@@ -733,10 +805,70 @@ export function DocumentsScreen() {
                 <AppButton title="Choose photo" onPress={() => void pickFromPhotos()} variant="outline" />
               </View>
               <AppButton title="Enter manually" onPress={enterManualMode} variant="outline" />
+              {typeof __DEV__ !== 'undefined' && __DEV__ ? (
+                <AppButton
+                  title="Test parser with sample permit text"
+                  onPress={runSampleParserTest}
+                  variant="outline"
+                />
+              ) : null}
             </AppCard>
           ) : (
             <AppCard title={editingDocument ? 'Edit document' : 'Review document'}>
               {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
+
+              {!editingDocument && ocrAttempted ? (
+                <View style={styles.detectedTextPanel}>
+                  <Text style={styles.detectedTextHeading}>Detected text</Text>
+                  {typeof __DEV__ !== 'undefined' && __DEV__ && lastScanUri ? (
+                    <Text style={styles.devMuted} selectable>
+                      Scan URI: {lastScanUri}
+                    </Text>
+                  ) : null}
+                  {typeof __DEV__ !== 'undefined' && __DEV__ && ocrUnsupported ? (
+                    <Text style={styles.devOcrWarn}>
+                      On-device OCR is not available in this runtime (e.g. some Expo Go builds). Use a development
+                      build if scans always return empty text.
+                    </Text>
+                  ) : null}
+                  {typeof __DEV__ !== 'undefined' && __DEV__ && ocrError ? (
+                    <Text style={styles.devOcrError}>OCR error: {ocrError}</Text>
+                  ) : null}
+                  {!ocrRawText.trim() ? (
+                    <>
+                      <Text style={styles.detectedEmpty}>No text detected from this image.</Text>
+                      <Text style={styles.emptyOcrHint}>
+                        We couldn't read text from this image. Try a closer, brighter photo or enter details manually.
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Pressable
+                        onPress={() => setShowDetectedText((prev) => !prev)}
+                        style={styles.detectedTextToggle}
+                      >
+                        <Text style={styles.detectedTextToggleLabel}>
+                          {showDetectedText ? 'Hide raw OCR text' : 'Show raw OCR text'}
+                        </Text>
+                      </Pressable>
+                      {showDetectedText ? (
+                        <Text style={styles.detectedTextBody} selectable>
+                          {ocrRawText}
+                        </Text>
+                      ) : null}
+                    </>
+                  )}
+                </View>
+              ) : null}
+
+              {typeof __DEV__ !== 'undefined' && __DEV__ && !editingDocument ? (
+                <AppButton
+                  title="Test parser with sample permit text"
+                  onPress={runSampleParserTest}
+                  variant="outline"
+                />
+              ) : null}
+
               {autoDetected ? (
                 <View style={styles.autoBadgeRow}>
                   <Text style={styles.autoBadge}>Auto-detected</Text>
@@ -836,19 +968,6 @@ export function DocumentsScreen() {
                   )}
                 </View>
               </Field>
-
-              {autoDetected?.extractedText ? (
-                <View style={styles.rawTextSection}>
-                  <Pressable onPress={() => setShowDetectedText((prev) => !prev)} style={styles.detectedTextToggle}>
-                    <Text style={styles.detectedTextToggleLabel}>
-                      {showDetectedText ? 'Hide extracted text' : 'Review extracted text'}
-                    </Text>
-                  </Pressable>
-                  {showDetectedText ? (
-                    <Text style={styles.detectedTextBody}>{autoDetected.extractedText}</Text>
-                  ) : null}
-                </View>
-              ) : null}
 
               <AppButton
                 title={busy ? (selectedFile ? 'Uploading...' : 'Saving...') : 'Save'}
@@ -1232,9 +1351,48 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.info,
   },
-  rawTextSection: {
-    marginTop: 8,
-    marginBottom: 8,
+  detectedTextPanel: {
+    marginBottom: 14,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    backgroundColor: colors.surfaceAlt,
+    gap: 8,
+  },
+  detectedTextHeading: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  detectedEmpty: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  emptyOcrHint: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.textMuted,
+  },
+  devMuted: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginBottom: 4,
+  },
+  devOcrWarn: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+    color: colors.warning,
+    marginBottom: 4,
+  },
+  devOcrError: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    color: colors.danger,
+    marginBottom: 4,
   },
   previewCard: {
     borderRadius: 12,

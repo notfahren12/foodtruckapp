@@ -25,6 +25,37 @@ export type ParsedDocumentResult = {
 /** Alias for screens that still refer to "ParsedDocumentData". */
 export type ParsedDocumentData = ParsedDocumentResult;
 
+/** Dev/sample text matching the Birmingham fake mobile food unit permit layout. */
+export const SAMPLE_BIRMINGHAM_MOBILE_FOOD_UNIT_PERMIT = `CITY OF BIRMINGHAM ALABAMA
+MOBILE FOOD UNIT PERMIT
+DEPARTMENT OF PUBLIC HEALTH
+BUSINESS NAME:
+Nathan's Tacos LLC
+DBA NAME:
+Nathan's Tacos
+OWNER:
+Nathan Carter
+PHONE:
+(205) 555-0198
+BUSINESS ADDRESS:
+1234 3rd Ave N
+Birmingham, AL 35203
+MOBILE UNIT / TRUCK NAME:
+Nathan's Tacos
+LICENSE PLATE:
+TACO24
+UNIT DESCRIPTION:
+2019 Chevrolet Express 3500 White
+SERVICE AREA:
+City of Birmingham
+PERMIT NUMBER
+MFU-2024-01578
+ISSUED DATE:
+06/15/2024
+EXPIRATION DATE:
+06/14/2025
+EXPIRED`;
+
 function normalizeText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -33,16 +64,36 @@ function normalizePlate(value: string): string {
   return value.replace(/[\s-]/g, '').toUpperCase();
 }
 
+/** Curly quotes, collapse whitespace; tolerant of OCR layout noise. */
+export function preprocessDocumentText(raw: string): string {
+  let s = raw.replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
+  s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  s = s.replace(/[ \t\f\v]+/g, ' ');
+  s = s.replace(/\n[ \t]+/g, '\n');
+  s = s.replace(/\n{3,}/g, '\n\n');
+  return s.trim();
+}
+
+/** Fix common OCR confusions in permit-style IDs (conservative: MFU-YYYY-##### pattern). */
+function fixPermitIdOcrTypos(segment: string): string {
+  return segment
+    .replace(/^MFU[/\\]/i, 'MFU-')
+    .replace(/\bMFU[-\s]?(\d{4})[-\s]?(\d{5})\b/i, 'MFU-$1-$2');
+}
+
 export function parseDateCandidate(raw: string): string | null {
-  const cleaned = raw.replace(/[^\d/-]/g, ' ').trim();
-  const iso = cleaned.match(/\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b/);
+  const t = raw.trim();
+
+  const iso = t.match(/\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b/);
   if (iso?.[1] && iso[2] && iso[3]) {
     return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
   }
-  const us = cleaned.match(/\b(\d{1,2})[-/](\d{1,2})[-/](20\d{2})\b/);
+
+  const us = t.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](20\d{2})\b/);
   if (us?.[1] && us[2] && us[3]) {
     return `${us[3]}-${us[1].padStart(2, '0')}-${us[2].padStart(2, '0')}`;
   }
+
   const monthNames = [
     'january',
     'february',
@@ -58,9 +109,12 @@ export function parseDateCandidate(raw: string): string | null {
     'december',
   ];
   const monthAbbr = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-  const lower = raw.toLowerCase();
+  const lower = t.toLowerCase();
   for (let mi = 0; mi < 12; mi++) {
-    const re = new RegExp(`\\b(${monthNames[mi]}|${monthAbbr[mi]})\\.?\\s+(\\d{1,2}),?\\s+(20\\d{2})\\b`, 'i');
+    const re = new RegExp(
+      `\\b(${monthNames[mi]}|${monthAbbr[mi]})\\.?\\s+(\\d{1,2}),?\\s+(20\\d{2})\\b`,
+      'i',
+    );
     const m = lower.match(re);
     if (m?.[2] && m[3]) {
       const day = m[2].padStart(2, '0');
@@ -70,6 +124,11 @@ export function parseDateCandidate(raw: string): string | null {
     }
   }
   return null;
+}
+
+function parseDateFromSegment(segment: string): string | null {
+  const cleaned = segment.replace(/[^\d\/\-\s]/g, ' ').trim();
+  return parseDateCandidate(cleaned);
 }
 
 const EXPIRATION_LABELS = [
@@ -86,14 +145,7 @@ const EXPIRATION_LABELS = [
   'end date',
 ];
 
-const ISSUED_LABELS = [
-  'issued date',
-  'date issued',
-  'issue date',
-  'effective date',
-  'effective',
-  'start date',
-];
+const ISSUED_LABELS = ['issued date', 'date issued', 'issue date', 'effective date', 'effective', 'start date'];
 
 const NUMBER_LABELS = [
   'permit number',
@@ -114,6 +166,10 @@ const NUMBER_LABELS = [
 
 export function detectDocumentType(rawText: string): DocumentType {
   const text = normalizeText(rawText);
+
+  if (/\bmobile\s+food\s+unit\s+permit\b/i.test(rawText) || text.includes('mobile food unit permit')) {
+    return 'health_permit';
+  }
 
   if (/\bdriver\s*['']?s?\s*license\b/i.test(rawText) || text.includes('drivers license')) {
     return 'driver_license';
@@ -162,6 +218,26 @@ export function detectDocumentType(rawText: string): DocumentType {
   return 'other';
 }
 
+/** Prefer canonical title for City mobile food unit permits. */
+function syntheticMobileFoodUnitTitle(rawText: string, jurisdictionDisplay: string | null): string | null {
+  const n = normalizeText(rawText);
+  if (!n.includes('mobile food unit')) return null;
+
+  const cityOf = rawText.match(/city\s+of\s+([a-zA-Z][a-zA-Z\s]*?)(?:\s+alabama|,|\n|$)/i);
+  const cityName = cityOf?.[1]?.trim();
+  const shortCity =
+    jurisdictionDisplay ??
+    (cityName ? cityName.replace(/\s+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : null);
+
+  if (shortCity && /birmingham/i.test(shortCity)) {
+    return 'City of Birmingham Mobile Food Unit Permit';
+  }
+  if (shortCity) {
+    return `City of ${shortCity} Mobile Food Unit Permit`;
+  }
+  return 'Mobile Food Unit Permit';
+}
+
 export function extractDocumentTitle(rawText: string): string | null {
   const lines = rawText
     .split(/\r?\n/)
@@ -187,7 +263,31 @@ export function extractDocumentTitle(rawText: string): string | null {
   return first ?? null;
 }
 
+function extractMfuStylePermitNumber(rawText: string): string | null {
+  const fixed = fixPermitIdOcrTypos(rawText);
+  const direct = fixed.match(/\b(MFU-\d{4}-\d{4,6})\b/i);
+  if (direct?.[1]) return direct[1].toUpperCase();
+
+  const lines = fixed.split(/\r?\n/).map((l) => l.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (/^permit\s*number\s*:?\s*$/i.test(line)) {
+      const next = lines[i + 1];
+      if (next && /\b[A-Z]{2,}-\d{4}-\d{4,}\b/i.test(next)) {
+        const m = next.match(/\b([A-Z]{2,}-\d{4}-\d{4,})\b/i);
+        if (m?.[1]) return m[1].toUpperCase();
+      }
+    }
+    const inline = line.match(/permit\s*number\s*:?\s*([A-Z0-9]{2,}-\d{4}-\d{4,})/i);
+    if (inline?.[1]) return inline[1].toUpperCase();
+  }
+  return null;
+}
+
 export function extractPermitNumber(rawText: string): string | null {
+  const mfu = extractMfuStylePermitNumber(rawText);
+  if (mfu) return mfu;
+
   const lines = rawText.split(/\r?\n/);
   for (const line of lines) {
     const normalized = normalizeText(line);
@@ -198,6 +298,7 @@ export function extractPermitNumber(rawText: string): string | null {
     const candidatePool = afterColon.length >= 2 ? `${afterColon} ${line}` : line;
 
     const patterns = [
+      /\b(MFU-\d{4}-\d{4,6})\b/i,
       /\b([A-Z]{1,4}[- ]?\d{4,})\b/i,
       /\b(\d{5,}[A-Z]?)\b/,
       /\b([A-Z]{2,}-\d{3,}-\d{2,})\b/,
@@ -213,27 +314,42 @@ export function extractPermitNumber(rawText: string): string | null {
   return null;
 }
 
+function lineMatchesAnyLabel(normalizedLine: string, labels: string[]): boolean {
+  const compact = normalizedLine.replace(/\s+/g, '');
+  return labels.some((label) => {
+    const key = label.replace(/\s+/g, '');
+    return normalizedLine.includes(label) || compact.includes(key);
+  });
+}
+
 function extractDateNearLabels(rawText: string, labels: string[], preferLater = false): string | null {
-  const lines = rawText.split(/\r?\n/);
+  const lines = rawText.split(/\r?\n/).map((l) => l.trim());
   const found: string[] = [];
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
     const normalized = normalizeText(line);
-    const matched = labels.some((label) => normalized.includes(label));
+    const matched = lineMatchesAnyLabel(normalized, labels);
     if (!matched) continue;
 
     const inlineDate =
       parseDateCandidate(line) ??
-      parseDateCandidate(line.replace(/^[^:]*:\s*/, ''));
+      parseDateCandidate(line.replace(/^[^:]*:?\s*/, ''));
     if (inlineDate) found.push(inlineDate);
 
     const tail = line.split(/[:#]/).pop() ?? line;
-    const d = parseDateCandidate(tail);
+    const d = parseDateFromSegment(tail);
     if (d) found.push(d);
+
+    const next = lines[i + 1];
+    if (next && !lineMatchesAnyLabel(normalizeText(next), [...ISSUED_LABELS, ...EXPIRATION_LABELS])) {
+      const nd = parseDateFromSegment(next);
+      if (nd) found.push(nd);
+    }
   }
 
   if (!found.length) {
-    const global = rawText.match(/\b20\d{2}[-/](\d{1,2})[-/](\d{1,2})\b/g);
+    const global = rawText.match(/\b(?:20\d{2}|\d{1,2}[\/\-]\d{1,2}[\/\-]20\d{2})\b[^.\n]*/g);
     if (global?.length) {
       const parsed = global.map((g) => parseDateCandidate(g)).filter(Boolean) as string[];
       found.push(...parsed);
@@ -256,8 +372,36 @@ export function extractIssuedDate(rawText: string): string | null {
   return extractDateNearLabels(rawText, ISSUED_LABELS, false);
 }
 
+/** Map "City of Birmingham" style strings to short jurisdiction names for DB lookup. */
+function resolveCityOfName(rawFragment: string, knownJurisdictions: KnownJurisdiction[]): string | null {
+  const cleaned = rawFragment.replace(/\s+/g, ' ').trim();
+  const sorted = [...knownJurisdictions].sort((a, b) => b.name.length - a.name.length);
+  for (const j of sorted) {
+    if (normalizeText(cleaned).includes(normalizeText(j.name))) {
+      return j.name;
+    }
+  }
+  const n = normalizeText(cleaned);
+  if (n.includes('birmingham')) return 'Birmingham';
+  if (n.includes('hoover')) return 'Hoover';
+  if (n.includes('pelham')) return 'Pelham';
+  if (n.includes('alabaster')) return 'Alabaster';
+  if (n.includes('calera')) return 'Calera';
+  if (n.includes('columbiana')) return 'Columbiana';
+  if (n.includes('shelby') && n.includes('county')) return 'Shelby County';
+  if (n.includes('jefferson') && n.includes('county')) return 'Jefferson County';
+  return null;
+}
+
 export function extractJurisdiction(rawText: string, knownJurisdictions: KnownJurisdiction[]): string | null {
   const normalized = normalizeText(rawText);
+
+  const cityOfGlobal = rawText.match(/city\s+of\s+([a-zA-Z][a-zA-Z\s]{2,40}?)(?:\s+alabama|,|\n|$|\r)/im);
+  if (cityOfGlobal?.[1]) {
+    const resolved = resolveCityOfName(cityOfGlobal[1], knownJurisdictions);
+    if (resolved) return resolved;
+  }
+
   const sorted = [...knownJurisdictions].sort((a, b) => b.name.length - a.name.length);
   for (const j of sorted) {
     const n = normalizeText(j.name);
@@ -291,12 +435,49 @@ function jurisdictionIdFromName(name: string | null, knownJurisdictions: KnownJu
 }
 
 export function extractBusinessName(rawText: string): string | null {
-  const lines = rawText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = rawText.split(/\r?\n/).map((l) => l.trim());
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    const same = line.match(/^business\s*name\s*:?\s*(.+)$/i);
+    if (same?.[1]?.trim()) {
+      const v = same[1].trim();
+      if (v.length > 1) return v.replace(/\s+/g, ' ');
+    }
+    if (/^business\s*name\s*:?\s*$/i.test(line)) {
+      const next = lines[i + 1];
+      if (next && !/^dba|^owner|^phone|^address/i.test(next)) {
+        return next.replace(/\s+/g, ' ');
+      }
+    }
+  }
+
   for (const line of lines.slice(0, 15)) {
     if (line.length < 3 || line.length > 80) continue;
     if (/(llc|inc\.?|l\.l\.c|corp\.?|company|foods|catering|kitchen|restaurant)/i.test(line)) {
       return line.replace(/\s+/g, ' ').trim();
     }
+  }
+  return null;
+}
+
+function extractMobileUnitTruckLabel(rawText: string): string | null {
+  const m = rawText.match(
+    /mobile\s+unit\s*[\/\\]?\s*truck\s*name\s*:?\s*\n?\s*([^\n]+)/i,
+  );
+  return m?.[1]?.trim() ?? null;
+}
+
+function extractLabeledLicensePlate(rawText: string): string | null {
+  const lines = rawText.split(/\r?\n/).map((l) => l.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (/^license\s*plate\s*:?\s*$/i.test(line)) {
+      const next = lines[i + 1];
+      if (next && /^[A-Z0-9]{3,10}$/i.test(next.trim())) return next.trim().toUpperCase();
+    }
+    const inline = line.match(/^license\s*plate\s*:?\s*([A-Z0-9]{3,10})\s*$/i);
+    if (inline?.[1]) return inline[1].toUpperCase();
   }
   return null;
 }
@@ -311,9 +492,19 @@ function extractVehicleNotes(rawText: string, matchedTruck: KnownTruck | null): 
     }
   }
 
-  const plateMatch = rawText.match(/\b(?:plate|tag|license)\s*[#:]?\s*([A-Z0-9]{3,8})\b/i);
-  if (plateMatch?.[1]) {
-    parts.push(`Plate text: ${plateMatch[1].toUpperCase()}`);
+  const labeledPlate = extractLabeledLicensePlate(rawText);
+  if (labeledPlate) {
+    parts.push(`License plate: ${labeledPlate}`);
+  } else {
+    const plateMatch = rawText.match(/\b(?:plate|tag)\s*[#:]?\s*([A-Z0-9]{3,8})\b/i);
+    if (plateMatch?.[1]) {
+      parts.push(`Plate text: ${plateMatch[1].toUpperCase()}`);
+    }
+  }
+
+  const unitName = extractMobileUnitTruckLabel(rawText);
+  if (unitName) {
+    parts.push(`Mobile unit name: ${unitName}`);
   }
 
   return parts.length ? parts.join(' · ') : null;
@@ -322,7 +513,9 @@ function extractVehicleNotes(rawText: string, matchedTruck: KnownTruck | null): 
 export function matchTruck(rawText: string, knownTrucks: KnownTruck[]): string | null {
   if (!knownTrucks.length) return null;
   const text = rawText.toUpperCase();
-  const normFull = normalizeText(rawText);
+  const mobileName = extractMobileUnitTruckLabel(rawText);
+  const plateLabel = extractLabeledLicensePlate(rawText);
+  const searchBlob = normalizeText(`${rawText} ${mobileName ?? ''} ${plateLabel ?? ''}`);
 
   for (const truck of knownTrucks) {
     if (truck.vin?.trim()) {
@@ -334,14 +527,19 @@ export function matchTruck(rawText: string, knownTrucks: KnownTruck[]): string |
     if (truck.license_plate?.trim()) {
       const p = normalizePlate(truck.license_plate);
       if (p.length >= 4) {
-        const plateRegex = new RegExp(`\\b${p.replace(/(.)/g, '$1\\s*')}\\b`, 'i');
-        if (plateRegex.test(text) || text.replace(/\s/g, '').includes(p)) {
+        if (text.replace(/\s/g, '').includes(p)) {
+          return truck.id;
+        }
+        if (plateLabel && normalizePlate(plateLabel) === p) {
           return truck.id;
         }
       }
     }
     const name = truck.name.trim();
-    if (name.length >= 3 && normFull.includes(normalizeText(name))) {
+    if (name.length >= 3 && searchBlob.includes(normalizeText(name))) {
+      return truck.id;
+    }
+    if (mobileName && normalizeText(mobileName).includes(normalizeText(name))) {
       return truck.id;
     }
   }
@@ -457,13 +655,39 @@ function buildSummaryNotes(args: {
   return lines.join('\n');
 }
 
+function computeConfidence(flags: {
+  docType: DocumentType;
+  expirationDate: string | null;
+  issuedDate: string | null;
+  permitNumber: string | null;
+  jurisdictionName: string | null;
+  businessName: string | null;
+  truckId: string | null;
+  permitId: string | null;
+  labeledPermitStyle: boolean;
+}): number {
+  let confidence = 0.12;
+  if (flags.docType !== 'other') confidence += 0.18;
+  if (flags.expirationDate) confidence += 0.18;
+  if (flags.issuedDate) confidence += 0.12;
+  if (flags.permitNumber) confidence += 0.12;
+  if (flags.jurisdictionName) confidence += 0.1;
+  if (flags.businessName) confidence += 0.06;
+  if (flags.truckId) confidence += 0.06;
+  if (flags.permitId) confidence += 0.08;
+  if (flags.labeledPermitStyle) confidence += 0.15;
+  return Math.max(0, Math.min(1, confidence));
+}
+
 export function parseDocumentText(
   rawText: string,
   knownJurisdictions: KnownJurisdiction[],
   knownTrucks: KnownTruck[],
   knownPermits: KnownPermit[],
 ): ParsedDocumentResult {
-  const extractedText = rawText.trim();
+  const preprocessed = preprocessDocumentText(rawText);
+  const extractedText = preprocessed;
+
   if (!extractedText.length) {
     return {
       documentType: null,
@@ -482,40 +706,49 @@ export function parseDocumentText(
     };
   }
 
-  const docType = detectDocumentType(rawText);
-  const jurisdictionName = extractJurisdiction(rawText, knownJurisdictions);
+  const labeledPermitStyle =
+    /\bpermit\s*number\b/i.test(preprocessed) &&
+    /\b(?:issued|issue)\s*date\b/i.test(preprocessed) &&
+    /\bexpiration\s*date\b/i.test(preprocessed);
+
+  const docType = detectDocumentType(preprocessed);
+  const jurisdictionName = extractJurisdiction(preprocessed, knownJurisdictions);
   const jurisdictionId = jurisdictionIdFromName(jurisdictionName, knownJurisdictions);
 
-  const truckId = matchTruck(rawText, knownTrucks);
+  const truckId = matchTruck(preprocessed, knownTrucks);
 
-  const permitId = matchPermit(rawText, knownPermits, {
+  const permitId = matchPermit(preprocessed, knownPermits, {
     documentType: docType,
     jurisdictionId,
     truckId,
   });
 
-  const permitNumber = extractPermitNumber(rawText);
-  const issuedDate = extractIssuedDate(rawText);
-  const expirationDate = extractExpirationDate(rawText);
-  const businessName = extractBusinessName(rawText);
+  const permitNumber = extractPermitNumber(preprocessed);
+  const issuedDate = extractIssuedDate(preprocessed);
+  const expirationDate = extractExpirationDate(preprocessed);
+  const businessName = extractBusinessName(preprocessed);
 
-  const titleFromDoc = extractDocumentTitle(rawText);
+  const syntheticName = syntheticMobileFoodUnitTitle(preprocessed, jurisdictionName);
+  const titleFromDoc = extractDocumentTitle(preprocessed);
   const name =
+    syntheticName ??
     titleFromDoc ??
     (businessName ? `${defaultTitleForType(docType)} — ${businessName}` : defaultTitleForType(docType));
 
   const matchedTruck = truckId ? knownTrucks.find((t) => t.id === truckId) ?? null : null;
-  const vehicleNotes = extractVehicleNotes(rawText, matchedTruck);
+  const vehicleNotes = extractVehicleNotes(preprocessed, matchedTruck);
 
-  let confidence = 0.15;
-  if (docType !== 'other') confidence += 0.2;
-  if (expirationDate) confidence += 0.18;
-  if (issuedDate) confidence += 0.12;
-  if (permitNumber) confidence += 0.12;
-  if (jurisdictionName) confidence += 0.1;
-  if (businessName) confidence += 0.05;
-  if (truckId) confidence += 0.08;
-  if (permitId) confidence += 0.1;
+  const confidence = computeConfidence({
+    docType,
+    expirationDate,
+    issuedDate,
+    permitNumber,
+    jurisdictionName,
+    businessName,
+    truckId,
+    permitId,
+    labeledPermitStyle,
+  });
 
   const notes = buildSummaryNotes({
     businessName,
@@ -523,8 +756,6 @@ export function parseDocumentText(
     vehicleNotes,
     permitNumber,
   });
-
-  confidence = Math.max(0, Math.min(1, confidence));
 
   return {
     documentType: docType,
