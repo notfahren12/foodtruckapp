@@ -12,7 +12,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'JurisdictionsSettings'>
 export function JurisdictionsScreen({ navigation }: Props) {
   return (
     <Screen>
-      <ScreenHeader subtitle="Track where you operate; permit packs stay aligned to each jurisdiction." title="Jurisdictions" />
+      <ScreenHeader subtitle="Track territories and office contacts used in permit and document filters." title="Territories & Offices" />
 
       <View style={styles.wrap}>
         {PERMIT_JURISDICTIONS.map((name) => (
@@ -22,7 +22,7 @@ export function JurisdictionsScreen({ navigation }: Props) {
         ))}
       </View>
 
-      <Text style={styles.note}>Editing watchlists and linking agencies will arrive with backend data.</Text>
+      <Text style={styles.note}>Requirement source needed for each office before relying on any checklist item.</Text>
 
       <AppButton title="Done" onPress={() => navigation.goBack()} variant="outline" />
     </Screen>

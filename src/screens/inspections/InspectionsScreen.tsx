@@ -16,7 +16,7 @@ const INSPECTION_ORDER: InspectionType[] = ['Health', 'Fire', 'City vending', 'C
 export function InspectionsScreen() {
   return (
     <Screen>
-      <ScreenHeader subtitle="Scheduling integrations arrive later; dates below are sample placeholders." title="Inspections" />
+      <ScreenHeader subtitle="Track upcoming inspection activity for each truck." title="Inspections" />
 
       <SectionHeader title="Upcoming Inspections" subtitle="Track what is next so your truck stays ready." />
       {MOCK_UPCOMING_INSPECTIONS.map((item) => (

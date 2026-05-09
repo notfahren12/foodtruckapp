@@ -17,7 +17,7 @@ export function ForgotPasswordScreen({ navigation }: Props) {
         title="Forgot password"
       />
 
-      <AppCard title="Recovery Placeholder">
+      <AppCard title="Recovery">
         <Text style={styles.body}>
           You’ll receive an email link to reset your password once recovery is hooked up on this screen.
         </Text>

@@ -27,7 +27,7 @@ export function SettingsScreen() {
 
   return (
     <Screen>
-      <ScreenHeader subtitle="Profile, fleet, reminders, and jurisdictions stay editable here." title="Settings" />
+      <ScreenHeader subtitle="Profile, fleet, reminders, and territories stay editable here." title="Settings" />
 
       <AppCard>
         <Text style={styles.sectionLabel}>Account</Text>
@@ -45,7 +45,7 @@ export function SettingsScreen() {
       <SettingsRow helper={businessNameDisplay !== '—' ? businessNameDisplay : 'Save business onboarding details'} label="Business profile" onPress={() => navigation.navigate('BusinessProfile')} />
       <SettingsRow label="Trucks" onPress={() => navigation.navigate('TrucksSettings')} />
       <SettingsRow label="Notification settings" onPress={() => navigation.navigate('NotificationSettings')} />
-      <SettingsRow label="Jurisdictions" onPress={() => navigation.navigate('JurisdictionsSettings')} />
+      <SettingsRow label="Territories & Offices" onPress={() => navigation.navigate('JurisdictionsSettings')} />
       <SettingsRow label="Disclaimer" onPress={() => navigation.navigate('Disclaimer')} />
 
       <SectionHeader title="Session" subtitle="Control sign-out and routing behavior." />

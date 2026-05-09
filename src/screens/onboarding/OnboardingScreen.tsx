@@ -53,7 +53,7 @@ export function OnboardingScreen({}: Props) {
     if (!city.trim()) return 'Enter a city.';
     if (!county.trim()) return 'Enter a county.';
     if (truckName.trim().length < 2) return 'Enter your first truck’s name.';
-    if (!licensePlate.trim()) return 'Enter a license plate (or pending tag placeholder).';
+    if (!licensePlate.trim()) return 'Enter a license plate (or pending tag).';
     try {
       validateYear();
     } catch (e) {

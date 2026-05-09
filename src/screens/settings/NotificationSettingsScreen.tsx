@@ -11,10 +11,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'NotificationSettings'>;
 export function NotificationSettingsScreen({ navigation }: Props) {
   return (
     <Screen>
-      <ScreenHeader subtitle="Expo Notifications will plug in here; toggles are illustrative only." title="Notifications" />
+      <ScreenHeader subtitle="Choose reminder timing for renewals and inspection follow-ups." title="Notifications" />
 
       <View style={styles.card}>
-        <Text style={styles.title}>Reminder cadence (placeholder)</Text>
+        <Text style={styles.title}>Reminder cadence</Text>
         <Text style={styles.line}>• 60 / 30 / 14 / 7 days before expiration</Text>
         <Text style={styles.line}>• Day-of inspection ping</Text>
         <Text style={styles.line}>• Quiet hours respected once enabled</Text>

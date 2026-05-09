@@ -1,2 +1,2 @@
 export const LEGAL_DISCLAIMER =
-  'This app does not provide legal advice or guarantee permit approval. It helps organize public requirements, documents, renewals, and reminders.';
+  'This app helps organize permits, documents, inspections, and renewal reminders. Always confirm requirements with the appropriate city, county, or state office.';

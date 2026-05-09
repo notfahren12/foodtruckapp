@@ -101,7 +101,9 @@ export type DocumentRow = {
   updated_at: string;
   trucks: Pick<TruckRow, 'id' | 'name'> | null;
   truck_permits: Pick<TruckPermitRow, 'id'> & {
-    permit_requirements: Pick<PermitRequirementRow, 'id' | 'name'> | null;
+    permit_requirements: (Pick<PermitRequirementRow, 'id' | 'name'> & {
+      jurisdictions: Pick<JurisdictionRow, 'id' | 'name'> | null;
+    }) | null;
   } | null;
 };
 
@@ -185,7 +187,18 @@ function normalizeDocumentRows(rows: any[]): DocumentRow[] {
       truck_permits: permit
         ? {
             id: permit.id,
-            permit_requirements: requirement ? { id: requirement.id, name: requirement.name } : null,
+            permit_requirements: requirement
+              ? {
+                  id: requirement.id,
+                  name: requirement.name,
+                  jurisdictions: requirement.jurisdictions
+                    ? {
+                        id: requirement.jurisdictions.id,
+                        name: requirement.jurisdictions.name,
+                      }
+                    : null,
+                }
+              : null,
           }
         : null,
     };
@@ -586,7 +599,11 @@ function documentSelectQuery() {
       id,
       permit_requirements (
         id,
-        name
+        name,
+        jurisdictions (
+          id,
+          name
+        )
       )
     )
   `;

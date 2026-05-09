@@ -69,7 +69,7 @@ export function PermitsScreen() {
   return (
     <Screen>
       <ScreenHeader
-        subtitle="Requirements are preliminary and must be verified with official city/county offices."
+        subtitle="Confirm local requirements before relying on this checklist."
         title="Permits"
       />
 
@@ -98,27 +98,24 @@ export function PermitsScreen() {
         <Text style={styles.empty}>No permit rows yet for this truck.</Text>
       ) : null}
 
-      <SectionHeader title="Permit Checklist" subtitle="Each item tracks status and expiration." />
+      <SectionHeader title="Permit Checklist" subtitle="Needs verification." />
       {permits.map((permit) => {
         const requirement = permit.permit_requirements;
-        const jurisdiction = requirement?.jurisdictions?.name ?? 'Unassigned jurisdiction';
-        const requirementType = requirement?.requirement_type ?? 'other';
+        const jurisdiction = requirement?.jurisdictions?.name ?? 'Requirement source needed';
         return (
           <AppCard key={permit.id}>
             <View style={styles.cardTop}>
               <View style={styles.titleBlock}>
                 <Text style={styles.permitName}>{requirement?.name ?? 'Unknown requirement'}</Text>
                 <Text style={styles.jurisdiction}>{jurisdiction}</Text>
-                <Text style={styles.requirementType}>Type: {requirementType}</Text>
               </View>
               <StatusBadge status={permit.status} />
             </View>
             <Text style={styles.expiration}>
               {permit.expiration_date ? `Expires: ${permit.expiration_date}` : 'No expiration date set'}
             </Text>
-            {permit.notes ? <Text style={styles.notes}>{permit.notes}</Text> : null}
             <AppButton
-              title="View Details"
+              title="View/Edit"
               onPress={() => navigation.navigate('PermitDetail', { permitId: permit.id })}
               variant="outline"
             />
@@ -187,20 +184,10 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontWeight: '600',
   },
-  requirementType: {
-    fontSize: 12,
-    color: colors.textMuted,
-    fontWeight: '600',
-    textTransform: 'capitalize',
-  },
   expiration: {
     fontSize: 13,
     color: colors.textMuted,
     fontWeight: '500',
-  },
-  notes: {
-    fontSize: 13,
-    color: colors.textSecondary,
   },
   empty: {
     fontSize: 13,

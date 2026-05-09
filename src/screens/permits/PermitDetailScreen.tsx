@@ -12,6 +12,23 @@ import { RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PermitDetail'>;
 
+function permitStatusLabel(status: TruckPermitStatus): string {
+  switch (status) {
+    case 'missing':
+      return 'Not added';
+    case 'pending':
+      return 'In progress';
+    case 'expiring_soon':
+      return 'Expires soon';
+    case 'expired':
+      return 'Expired';
+    case 'current':
+      return 'Current';
+    default:
+      return status;
+  }
+}
+
 export function PermitDetailScreen({ navigation, route }: Props) {
   const permitId = route.params.permitId;
   const [loading, setLoading] = useState(true);
@@ -94,7 +111,7 @@ export function PermitDetailScreen({ navigation, route }: Props) {
           {(['missing', 'pending', 'current', 'expiring_soon', 'expired'] as TruckPermitStatus[]).map((option) => (
             <AppButton
               key={option}
-              title={option.replace('_', ' ')}
+              title={permitStatusLabel(option)}
               onPress={() => setStatus(option)}
               variant={status === option ? 'primary' : 'outline'}
             />
@@ -147,7 +164,7 @@ export function PermitDetailScreen({ navigation, route }: Props) {
 
       <View style={styles.card}>
         <Text style={styles.body}>
-          Requirements are preliminary and must be verified with official city/county offices.
+          Needs verification. Confirm local requirements before relying on this checklist.
         </Text>
       </View>
 

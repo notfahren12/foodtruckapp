@@ -9,7 +9,6 @@ import { ScreenHeader } from '../../components/ScreenHeader';
 import { SectionHeader } from '../../components/SectionHeader';
 import { Screen } from '../../components/ui/Screen';
 import { colors } from '../../constants/colors';
-import { LEGAL_DISCLAIMER } from '../../constants/legal';
 import { useAuth } from '../../context/AuthContext';
 import {
   createMissingTruckPermitsForTruck,
@@ -170,10 +169,7 @@ export function DashboardScreen() {
     };
   }, [selectedTruck?.id, trucks]);
 
-  const locationLine =
-    business?.city || business?.county
-      ? [business.city, business.county].filter(Boolean).join(' • ')
-      : 'Add city and county in business profile';
+  const locationLine = business?.city || business?.county ? [business.city, business.county].filter(Boolean).join(' • ') : 'Verify with local office';
 
   const metrics = useMemo(() => {
     const normalizedDocuments = documents.map((document) => ({
@@ -288,6 +284,16 @@ export function DashboardScreen() {
 
       <ReadinessScoreCard score={readinessScore} />
 
+      <View style={styles.truckPicker}>
+        <View style={styles.truckAvatar}>
+          <Ionicons name="camera-outline" size={16} color={colors.textMuted} />
+        </View>
+        <View style={styles.truckMeta}>
+          <Text style={styles.truckName}>{selectedTruck?.name ?? trucks[0]?.name ?? 'No truck selected'}</Text>
+          <Text style={styles.truckPlate}>{selectedTruck?.license_plate ?? trucks[0]?.license_plate ?? 'Plate not added'}</Text>
+        </View>
+      </View>
+
       {trucks.length > 1 ? (
         <View style={styles.truckRow}>
           {trucks.map((truck) => (
@@ -304,7 +310,7 @@ export function DashboardScreen() {
         </View>
       ) : null}
 
-      <SectionHeader title="Quick Actions" subtitle="Tap a card to open that section." />
+      <SectionHeader title="Quick Actions" />
       <View style={styles.metricGrid}>
         <MetricCard
           label="Missing Permits"
@@ -332,7 +338,7 @@ export function DashboardScreen() {
         />
       </View>
 
-      <SectionHeader title="Priority Tasks" subtitle="Highest-impact compliance items first." />
+      <SectionHeader title="Priority Tasks" />
       {busy ? <Text style={styles.helper}>Loading dashboard insights...</Text> : null}
       {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
       {!busy && !errorMessage && !priorityTasks.length ? (
@@ -350,8 +356,6 @@ export function DashboardScreen() {
           ))
         : null}
 
-      <Text style={styles.disclaimer}>Requirements are preliminary and must be verified with official city/county offices.</Text>
-      <Text style={styles.disclaimer}>{LEGAL_DISCLAIMER}</Text>
     </Screen>
   );
 }
@@ -371,6 +375,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  truckPicker: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  truckAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceAlt,
+  },
+  truckMeta: {
+    gap: 2,
+  },
+  truckName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  truckPlate: {
+    fontSize: 12,
+    color: colors.textMuted,
+    fontWeight: '600',
   },
   truckChip: {
     paddingHorizontal: 12,
@@ -405,10 +442,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.danger,
     fontWeight: '700',
-  },
-  disclaimer: {
-    fontSize: 12,
-    color: colors.textMuted,
-    lineHeight: 17,
   },
 });

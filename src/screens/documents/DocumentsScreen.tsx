@@ -79,6 +79,10 @@ function humanizeDocumentType(type: DocumentType): string {
   return type.replace(/_/g, ' ');
 }
 
+function territoryForDocument(doc: DocumentRow): string {
+  return doc.truck_permits?.permit_requirements?.jurisdictions?.name ?? 'Requirement source needed';
+}
+
 export function DocumentsScreen() {
   const { business, trucks } = useAuth();
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
@@ -87,6 +91,8 @@ export function DocumentsScreen() {
   const [editingDocument, setEditingDocument] = useState<DocumentRow | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [selectedFile, setSelectedFile] = useState<SelectedLocalFile | null>(null);
+  const [selectedTruckFilter, setSelectedTruckFilter] = useState<string>('all');
+  const [selectedTerritoryFilter, setSelectedTerritoryFilter] = useState<string>('all');
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -120,7 +126,9 @@ export function DocumentsScreen() {
     }
     let cancelled = false;
     async function loadPermits() {
-      const result = await getTruckPermits(form.truck_id as string);
+      const truckId = form.truck_id;
+      if (!truckId) return;
+      const result = await getTruckPermits(truckId);
       if (cancelled) return;
       if (result.error) {
         setErrorMessage(result.error.message);
@@ -139,6 +147,34 @@ export function DocumentsScreen() {
       cancelled = true;
     };
   }, [form.truck_id]);
+
+  const territoryOptions = useMemo(
+    () =>
+      Array.from(new Set(documents.map((doc) => territoryForDocument(doc)))).sort((a, b) =>
+        a.localeCompare(b),
+      ),
+    [documents],
+  );
+
+  const filteredDocuments = useMemo(() => {
+    return documents.filter((doc) => {
+      const truckPass = selectedTruckFilter === 'all' || doc.truck_id === selectedTruckFilter;
+      const territoryPass =
+        selectedTerritoryFilter === 'all' || territoryForDocument(doc) === selectedTerritoryFilter;
+      return truckPass && territoryPass;
+    });
+  }, [documents, selectedTerritoryFilter, selectedTruckFilter]);
+
+  const groupedDocuments = useMemo(() => {
+    const map = new Map<DocumentType, DocumentRow[]>();
+    DOCUMENT_TYPE_OPTIONS.forEach((type) => map.set(type, []));
+    filteredDocuments.forEach((doc) => {
+      const current = map.get(doc.document_type) ?? [];
+      current.push(doc);
+      map.set(doc.document_type, current);
+    });
+    return map;
+  }, [filteredDocuments]);
 
   function resetForm() {
     setForm(EMPTY_FORM);
@@ -363,23 +399,64 @@ export function DocumentsScreen() {
 
   return (
     <Screen>
-      <ScreenHeader subtitle="Metadata and file attachments are now saved to Supabase (private bucket)." title="Documents" />
+      <ScreenHeader subtitle="Verify with local office." title="Documents" />
 
-      <AppButton
-        title={showForm ? 'Close Form' : 'Add Document Metadata'}
-        onPress={() => (showForm ? resetForm() : startCreate())}
-        variant={showForm ? 'outline' : 'primary'}
-      />
+      {!showForm ? (
+        <>
+          <SectionHeader title="Truck" />
+          <View style={styles.pillWrap}>
+            <Pressable
+              onPress={() => setSelectedTruckFilter('all')}
+              style={[styles.pill, selectedTruckFilter === 'all' && styles.pillActive]}
+            >
+              <Text style={[styles.pillText, selectedTruckFilter === 'all' && styles.pillTextActive]}>All trucks</Text>
+            </Pressable>
+            {trucks.map((truck) => (
+              <Pressable
+                key={truck.id}
+                onPress={() => setSelectedTruckFilter(truck.id)}
+                style={[styles.pill, selectedTruckFilter === truck.id && styles.pillActive]}
+              >
+                <Text style={[styles.pillText, selectedTruckFilter === truck.id && styles.pillTextActive]}>{truck.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <SectionHeader title="Territory" />
+          <View style={styles.pillWrap}>
+            <Pressable
+              onPress={() => setSelectedTerritoryFilter('all')}
+              style={[styles.pill, selectedTerritoryFilter === 'all' && styles.pillActive]}
+            >
+              <Text style={[styles.pillText, selectedTerritoryFilter === 'all' && styles.pillTextActive]}>All territories</Text>
+            </Pressable>
+            {territoryOptions.map((territory) => (
+              <Pressable
+                key={territory}
+                onPress={() => setSelectedTerritoryFilter(territory)}
+                style={[styles.pill, selectedTerritoryFilter === territory && styles.pillActive]}
+              >
+                <Text style={[styles.pillText, selectedTerritoryFilter === territory && styles.pillTextActive]}>{territory}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <AppButton title="Add Document" onPress={startCreate} />
+          <SectionHeader title="Documents" />
+        </>
+      ) : (
+        <AppButton title="Close" onPress={resetForm} variant="outline" />
+      )}
 
       {showForm ? (
-        <AppCard title={editingDocument ? 'Edit document' : 'New document'}>
+        <AppCard title={editingDocument ? 'Edit document' : 'Add document'}>
           {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
           <Field label="Name *">
             <TextInput
               value={form.name}
               onChangeText={(value) => setForm((prev) => ({ ...prev, name: value }))}
-              placeholder="Health permit packet"
+              placeholder="Health permit"
               placeholderTextColor={colors.textMuted}
               style={styles.input}
             />
@@ -401,7 +478,7 @@ export function DocumentsScreen() {
             </View>
           </Field>
 
-          <Field label={`Truck (optional) • ${selectedTruckName}`}>
+          <Field label={`Truck • ${selectedTruckName}`}>
             <View style={styles.pillWrap}>
               <Pressable
                 onPress={() => setForm((prev) => ({ ...prev, truck_id: null, permit_id: null }))}
@@ -421,7 +498,7 @@ export function DocumentsScreen() {
             </View>
           </Field>
 
-          <Field label="Permit (optional)">
+          <Field label="Permit">
             <View style={styles.pillWrap}>
               <Pressable
                 onPress={() => setForm((prev) => ({ ...prev, permit_id: null }))}
@@ -436,14 +513,14 @@ export function DocumentsScreen() {
                   style={[styles.pill, form.permit_id === permit.id && styles.pillActive]}
                 >
                   <Text style={[styles.pillText, form.permit_id === permit.id && styles.pillTextActive]}>
-                    {permit.permit_requirements?.name ?? 'Unknown permit'}
+                    {permit.permit_requirements?.name ?? 'Requirement source needed'}
                   </Text>
                 </Pressable>
               ))}
             </View>
           </Field>
 
-          <Field label="Expiration date (optional, YYYY-MM-DD)">
+          <Field label="Expiration date (YYYY-MM-DD)">
             <TextInput
               value={form.expiration_date}
               onChangeText={(value) => setForm((prev) => ({ ...prev, expiration_date: value }))}
@@ -453,95 +530,87 @@ export function DocumentsScreen() {
             />
           </Field>
 
-          <Field label="Notes (optional)">
+          <Field label="Notes">
             <TextInput
               value={form.notes}
               onChangeText={(value) => setForm((prev) => ({ ...prev, notes: value }))}
-              placeholder="Extra details"
+              placeholder="Requirement source needed"
               placeholderTextColor={colors.textMuted}
               style={[styles.input, styles.notesInput]}
               multiline
             />
           </Field>
 
-          <Field label="Attach file (optional)">
+          <Field label="File">
             <View style={styles.actionRow}>
-              <AppButton title="Upload file" onPress={() => void pickDocumentFile()} variant="outline" />
-              <AppButton title="Take photo" onPress={() => void takePhoto()} variant="outline" />
-              <AppButton title="Choose from photos" onPress={() => void pickFromPhotos()} variant="outline" />
+              <AppButton title="Upload" onPress={() => void pickDocumentFile()} variant="outline" />
+              <AppButton title="Take Photo" onPress={() => void takePhoto()} variant="outline" />
+              <AppButton title="Choose Photo" onPress={() => void pickFromPhotos()} variant="outline" />
               {selectedFile ? (
                 <Text style={styles.fileSelected}>Selected: {selectedFile.fileName}</Text>
               ) : editingDocument?.file_path ? (
-                <Text style={styles.fileSelected}>Current file attached</Text>
+                <Text style={styles.fileSelected}>File attached</Text>
               ) : (
-                <Text style={styles.fileSelected}>No file selected</Text>
+                <Text style={styles.fileSelected}>Not yet uploaded</Text>
               )}
             </View>
           </Field>
 
           <AppButton
-            title={
-              busy
-                ? selectedFile
-                  ? 'Uploading...'
-                  : 'Saving...'
-                : editingDocument
-                  ? 'Save Changes'
-                  : 'Create Document'
-            }
+            title={busy ? (selectedFile ? 'Uploading...' : 'Saving...') : 'Save'}
             onPress={() => void saveDocument()}
             disabled={busy}
           />
         </AppCard>
-      ) : (
-        <SectionHeader title="Saved Documents" subtitle="Uploaded metadata and file attachment status." />
-      )}
+      ) : null}
 
       {!showForm && errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
-      {!showForm && documents.length ? (
-        documents.map((doc) => (
-          <AppCard
-            key={doc.id}
-            title={doc.name}
-            subtitle="Requirements are preliminary and must be verified with official city/county offices."
-          >
-            <View style={styles.rowBetween}>
-              <Text style={styles.metaLine}>Type: {humanizeDocumentType(doc.document_type)}</Text>
-              <StatusBadge status={statusFromExpiration(doc.expiration_date)} />
-            </View>
-            <Text style={styles.metaLine}>Expiration: {doc.expiration_date ?? 'Not set'}</Text>
-            <Text style={styles.metaLine}>Truck: {doc.trucks?.name ?? 'Not attached'}</Text>
-            <Text style={styles.metaLine}>
-              Permit: {doc.truck_permits?.permit_requirements?.name ?? 'Not attached'}
-            </Text>
-            {doc.notes ? <Text style={styles.notesText}>{doc.notes}</Text> : null}
-            {doc.file_path ? <Text style={styles.fileAttached}>File attached</Text> : <Text style={styles.fileSelected}>No file attached</Text>}
-            <View style={styles.actionRow}>
-              <AppButton title="Edit" onPress={() => startEdit(doc)} variant="outline" />
-              {doc.file_path ? (
-                <AppButton title="View file" onPress={() => void openDocumentFile(doc.file_path!)} variant="outline" />
-              ) : null}
-              <AppButton
-                title="Delete"
-                onPress={() =>
-                  Alert.alert('Delete document', 'Delete this document metadata row?', [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Delete', style: 'destructive', onPress: () => void removeDocument(doc) },
-                  ])
-                }
-                variant="ghost"
-              />
-            </View>
-          </AppCard>
-        ))
-      ) : null}
+      {!showForm && filteredDocuments.length > 0
+        ? DOCUMENT_TYPE_OPTIONS.map((type) => {
+            const rows = groupedDocuments.get(type) ?? [];
+            if (!rows.length) return null;
+            return (
+              <View key={type} style={styles.sectionWrap}>
+                <SectionHeader title={humanizeDocumentType(type)} />
+                {rows.map((doc) => (
+                  <AppCard key={doc.id} title={doc.name}>
+                    <View style={styles.rowBetween}>
+                      <Text style={styles.metaLine}>{territoryForDocument(doc)}</Text>
+                      <StatusBadge status={statusFromExpiration(doc.expiration_date)} />
+                    </View>
+                    <Text style={styles.metaLine}>Truck: {doc.trucks?.name ?? 'Not assigned'}</Text>
+                    <Text style={styles.metaLine}>Expiration: {doc.expiration_date ?? 'Not yet uploaded'}</Text>
+                    {doc.file_path ? (
+                      <Text style={styles.fileAttached}>File attached</Text>
+                    ) : (
+                      <Text style={styles.fileSelected}>Not yet uploaded</Text>
+                    )}
+                    <View style={styles.actionRow}>
+                      <AppButton title="Edit" onPress={() => startEdit(doc)} variant="outline" />
+                      {doc.file_path ? (
+                        <AppButton title="View" onPress={() => void openDocumentFile(doc.file_path!)} variant="outline" />
+                      ) : null}
+                      <AppButton
+                        title="Delete"
+                        onPress={() =>
+                          Alert.alert('Delete document', 'Delete this document?', [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Delete', style: 'destructive', onPress: () => void removeDocument(doc) },
+                          ])
+                        }
+                        variant="ghost"
+                      />
+                    </View>
+                  </AppCard>
+                ))}
+              </View>
+            );
+          })
+        : null}
 
-      {!showForm && !documents.length ? (
-        <EmptyState
-          title="No document metadata yet"
-          message="Add document entries now; files are stored privately in your Supabase documents bucket."
-        />
+      {!showForm && !filteredDocuments.length ? (
+        <EmptyState title="No documents added yet." message="Add your first document to get started." />
       ) : null}
 
       <Text style={styles.disclaimer}>{LEGAL_DISCLAIMER}</Text>
@@ -559,6 +628,9 @@ function Field({ children, label }: { label: string; children: ReactNode }) {
 }
 
 const styles = StyleSheet.create({
+  sectionWrap: {
+    gap: 8,
+  },
   field: {
     gap: 6,
   },
@@ -615,10 +687,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textSecondary,
     fontWeight: '600',
-  },
-  notesText: {
-    fontSize: 13,
-    color: colors.textSecondary,
   },
   actionRow: {
     gap: 8,
