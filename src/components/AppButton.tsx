@@ -42,8 +42,9 @@ export function AppButton({ title, onPress, variant = 'primary', disabled = fals
 
 const styles = StyleSheet.create({
   base: {
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 14,
+    minHeight: 48,
+    paddingVertical: 12,
     paddingHorizontal: 18,
     alignItems: 'center',
     justifyContent: 'center',
@@ -66,8 +67,8 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   label: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
   },
   labelPrimary: {
     color: '#FFFFFF',

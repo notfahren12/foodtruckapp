@@ -30,11 +30,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    paddingBottom: 100,
+    paddingBottom: 104,
   },
   padded: {
-    paddingHorizontal: 20,
-    gap: 16,
+    paddingHorizontal: 18,
+    gap: 14,
   },
   footer: {
     paddingHorizontal: 20,

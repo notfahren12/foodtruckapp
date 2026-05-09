@@ -1,9 +1,9 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { colors } from '../constants/colors';
 import type { PermitStatus } from '../data/mockCompliance';
-import type { TruckPermitStatus } from '../lib/db';
+import type { DocumentStatus, TruckPermitStatus } from '../lib/db';
 
-export type BadgeStatus = PermitStatus | TruckPermitStatus;
+export type BadgeStatus = PermitStatus | TruckPermitStatus | DocumentStatus;
 
 function formatStatusLabel(status: BadgeStatus): string {
   switch (status) {
@@ -17,6 +17,8 @@ function formatStatusLabel(status: BadgeStatus): string {
       return 'Expiring Soon';
     case 'expired':
       return 'Expired';
+    case 'uploaded':
+      return 'Uploaded';
     default:
       return status;
   }
@@ -29,6 +31,7 @@ function toneForStatus(status: BadgeStatus): { bg: string; border: string; fg: s
     case 'expired':
       return { bg: '#FEE2E2', border: '#FECACA', fg: colors.danger };
     case 'Uploaded':
+    case 'uploaded':
     case 'pending':
       return { bg: '#DBEAFE', border: '#BFDBFE', fg: colors.info };
     case 'Expiring Soon':
@@ -59,11 +62,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     alignSelf: 'flex-start',
   },
   label: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
 });

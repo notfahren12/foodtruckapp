@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { AppCard } from '../../components/AppCard';
 import { ScreenHeader } from '../../components/ScreenHeader';
+import { SectionHeader } from '../../components/SectionHeader';
 import { Screen } from '../../components/ui/Screen';
 import { LEGAL_DISCLAIMER } from '../../constants/legal';
 import { colors } from '../../constants/colors';
@@ -17,14 +18,16 @@ export function InspectionsScreen() {
     <Screen>
       <ScreenHeader subtitle="Scheduling integrations arrive later; dates below are sample placeholders." title="Inspections" />
 
-      <Text style={styles.sectionLabel}>Upcoming inspections</Text>
+      <SectionHeader title="Upcoming Inspections" subtitle="Track what is next so your truck stays ready." />
       {MOCK_UPCOMING_INSPECTIONS.map((item) => (
-        <AppCard key={item.id} subtitle={`${item.jurisdiction} • ${item.type}`} title={item.title}>
+        <AppCard key={item.id} title={item.title}>
+          <Text style={styles.meta}>{item.jurisdiction}</Text>
+          <Text style={styles.meta}>{item.type}</Text>
           <Text style={styles.date}>{item.dateLabel}</Text>
         </AppCard>
       ))}
 
-      <Text style={styles.sectionLabel}>Checklists by type</Text>
+      <SectionHeader title="Checklists By Type" subtitle="Use these prep prompts before each inspection." />
       {INSPECTION_ORDER.map((type) => (
         <AppCard key={type} title={type}>
           <View style={styles.list}>
@@ -43,17 +46,15 @@ export function InspectionsScreen() {
 }
 
 const styles = StyleSheet.create({
-  sectionLabel: {
+  meta: {
     fontSize: 13,
-    fontWeight: '700',
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
   date: {
     fontSize: 14,
-    fontWeight: '600',
-    color: colors.info,
+    fontWeight: '700',
+    color: colors.accent,
   },
   list: {
     gap: 8,

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../components/AppButton';
+import { AppCard } from '../../components/AppCard';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Screen } from '../../components/ui/Screen';
 import { useAuth } from '../../context/AuthContext';
@@ -48,37 +49,39 @@ export function LoginScreen({ navigation }: Props) {
         </View>
       ) : null}
 
-      <View style={styles.field}>
-        <Text style={styles.label}>Email</Text>
-        <TextInput
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!busy}
-          keyboardType="email-address"
-          onChangeText={setEmail}
-          placeholder="you@example.com"
-          placeholderTextColor={colors.textMuted}
-          style={styles.input}
-          textContentType="emailAddress"
-          value={email}
-        />
-      </View>
+      <AppCard title="Sign In">
+        <View style={styles.field}>
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!busy}
+            keyboardType="email-address"
+            onChangeText={setEmail}
+            placeholder="you@example.com"
+            placeholderTextColor={colors.textMuted}
+            style={styles.input}
+            textContentType="emailAddress"
+            value={email}
+          />
+        </View>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>Password</Text>
-        <TextInput
-          editable={!busy}
-          onChangeText={setPassword}
-          placeholder="••••••••"
-          placeholderTextColor={colors.textMuted}
-          secureTextEntry
-          style={styles.input}
-          textContentType="password"
-          value={password}
-        />
-      </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Password</Text>
+          <TextInput
+            editable={!busy}
+            onChangeText={setPassword}
+            placeholder="••••••••"
+            placeholderTextColor={colors.textMuted}
+            secureTextEntry
+            style={styles.input}
+            textContentType="password"
+            value={password}
+          />
+        </View>
 
-      <AppButton disabled={busy} title={busy ? 'Signing in…' : 'Sign in'} onPress={handleLogin} />
+        <AppButton disabled={busy} title={busy ? 'Signing in…' : 'Sign in'} onPress={handleLogin} />
+      </AppCard>
 
       <View style={styles.row}>
         <Pressable disabled={busy} onPress={() => navigation.navigate('Signup')}>

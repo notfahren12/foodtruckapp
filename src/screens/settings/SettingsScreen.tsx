@@ -1,7 +1,9 @@
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { AppCard } from '../../components/AppCard';
 import { ScreenHeader } from '../../components/ScreenHeader';
+import { SectionHeader } from '../../components/SectionHeader';
 import { Screen } from '../../components/ui/Screen';
 import { useAuth } from '../../context/AuthContext';
 import { LEGAL_DISCLAIMER } from '../../constants/legal';
@@ -27,29 +29,31 @@ export function SettingsScreen() {
     <Screen>
       <ScreenHeader subtitle="Profile, fleet, reminders, and jurisdictions stay editable here." title="Settings" />
 
-      <View style={styles.metaCard}>
+      <AppCard>
         <Text style={styles.sectionLabel}>Account</Text>
         <Text style={styles.emailText}>{emailDisplay}</Text>
-      </View>
+      </AppCard>
 
-      <View style={styles.metaCard}>
+      <AppCard>
         <Text style={styles.sectionLabel}>Business</Text>
         <DetailRow label="Business name" value={business?.name ?? '—'} />
         <DetailRow label="Owner name" value={business?.owner_name ?? '—'} />
         <DetailRow label="City / county" value={locality !== '—' ? locality.replace(' • ', ', ') : '—'} />
-      </View>
+      </AppCard>
 
+      <SectionHeader title="Workspace" subtitle="Manage business profile, fleet, and reminders." />
       <SettingsRow helper={businessNameDisplay !== '—' ? businessNameDisplay : 'Save business onboarding details'} label="Business profile" onPress={() => navigation.navigate('BusinessProfile')} />
       <SettingsRow label="Trucks" onPress={() => navigation.navigate('TrucksSettings')} />
       <SettingsRow label="Notification settings" onPress={() => navigation.navigate('NotificationSettings')} />
       <SettingsRow label="Jurisdictions" onPress={() => navigation.navigate('JurisdictionsSettings')} />
       <SettingsRow label="Disclaimer" onPress={() => navigation.navigate('Disclaimer')} />
 
-      <View style={styles.metaCard}>
+      <SectionHeader title="Session" subtitle="Control sign-out and routing behavior." />
+      <AppCard>
         <Text style={styles.meta}>
           If you delete your business in Supabase, you will automatically return through onboarding next time you launch the signed-in app.
         </Text>
-      </View>
+      </AppCard>
 
       <Pressable
         onPress={() => {
@@ -133,7 +137,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.borderSoft,
     backgroundColor: colors.surface,
@@ -153,14 +157,6 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: colors.textMuted,
     fontWeight: '300',
-  },
-  metaCard: {
-    padding: 14,
-    borderRadius: 12,
-    backgroundColor: colors.surfaceAlt,
-    borderWidth: 1,
-    borderColor: colors.borderSoft,
-    gap: 6,
   },
   meta: {
     fontSize: 13,

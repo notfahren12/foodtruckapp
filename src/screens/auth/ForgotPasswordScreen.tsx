@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../components/AppButton';
+import { AppCard } from '../../components/AppCard';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Screen } from '../../components/ui/Screen';
 import { colors } from '../../constants/colors';
@@ -16,11 +17,11 @@ export function ForgotPasswordScreen({ navigation }: Props) {
         title="Forgot password"
       />
 
-      <View style={styles.card}>
+      <AppCard title="Recovery Placeholder">
         <Text style={styles.body}>
           You’ll receive an email link to reset your password once recovery is hooked up on this screen.
         </Text>
-      </View>
+      </AppCard>
 
       <AppButton title="Back to sign in" onPress={() => navigation.navigate('Login')} variant="outline" />
     </Screen>
@@ -28,13 +29,6 @@ export function ForgotPasswordScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.borderSoft,
-  },
   body: {
     fontSize: 15,
     color: colors.textSecondary,

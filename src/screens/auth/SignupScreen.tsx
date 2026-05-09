@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../components/AppButton';
+import { AppCard } from '../../components/AppCard';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Screen } from '../../components/ui/Screen';
 import { LEGAL_DISCLAIMER } from '../../constants/legal';
@@ -78,65 +79,67 @@ export function SignupScreen({ navigation }: Props) {
         </View>
       ) : null}
 
-      <View style={styles.field}>
-        <Text style={styles.label}>Full name</Text>
-        <TextInput
-          editable={!busy}
-          autoCapitalize="words"
-          onChangeText={setFullName}
-          placeholder="Jordan Rivers"
-          placeholderTextColor={colors.textMuted}
-          style={styles.input}
-          textContentType="name"
-          value={fullName}
-        />
-      </View>
+      <AppCard title="Create Account">
+        <View style={styles.field}>
+          <Text style={styles.label}>Full name</Text>
+          <TextInput
+            editable={!busy}
+            autoCapitalize="words"
+            onChangeText={setFullName}
+            placeholder="Jordan Rivers"
+            placeholderTextColor={colors.textMuted}
+            style={styles.input}
+            textContentType="name"
+            value={fullName}
+          />
+        </View>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>Email</Text>
-        <TextInput
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!busy}
-          keyboardType="email-address"
-          onChangeText={setEmail}
-          placeholder="you@example.com"
-          placeholderTextColor={colors.textMuted}
-          style={styles.input}
-          textContentType="emailAddress"
-          value={email}
-        />
-      </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!busy}
+            keyboardType="email-address"
+            onChangeText={setEmail}
+            placeholder="you@example.com"
+            placeholderTextColor={colors.textMuted}
+            style={styles.input}
+            textContentType="emailAddress"
+            value={email}
+          />
+        </View>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>Password</Text>
-        <TextInput
-          editable={!busy}
-          onChangeText={setPassword}
-          placeholder={`At least ${MIN_PASSWORD} characters`}
-          placeholderTextColor={colors.textMuted}
-          secureTextEntry
-          style={styles.input}
-          textContentType="newPassword"
-          value={password}
-        />
-      </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Password</Text>
+          <TextInput
+            editable={!busy}
+            onChangeText={setPassword}
+            placeholder={`At least ${MIN_PASSWORD} characters`}
+            placeholderTextColor={colors.textMuted}
+            secureTextEntry
+            style={styles.input}
+            textContentType="newPassword"
+            value={password}
+          />
+        </View>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>Confirm password</Text>
-        <TextInput
-          editable={!busy}
-          onChangeText={setConfirmPassword}
-          placeholder="Re-enter password"
-          placeholderTextColor={colors.textMuted}
-          secureTextEntry
-          style={styles.input}
-          textContentType="newPassword"
-          value={confirmPassword}
-        />
-      </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Confirm password</Text>
+          <TextInput
+            editable={!busy}
+            onChangeText={setConfirmPassword}
+            placeholder="Re-enter password"
+            placeholderTextColor={colors.textMuted}
+            secureTextEntry
+            style={styles.input}
+            textContentType="newPassword"
+            value={confirmPassword}
+          />
+        </View>
 
-      <AppButton disabled={busy} title={busy ? 'Creating account…' : 'Create account'} onPress={handleSignup} />
+        <AppButton disabled={busy} title={busy ? 'Creating account…' : 'Create account'} onPress={handleSignup} />
+      </AppCard>
 
       <Pressable disabled={busy} onPress={() => navigation.navigate('Login')}>
         <Text style={[styles.link, busy && styles.linkDisabled]}>Already have an account? Sign in</Text>

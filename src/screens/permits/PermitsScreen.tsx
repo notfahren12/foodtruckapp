@@ -5,6 +5,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppButton } from '../../components/AppButton';
 import { AppCard } from '../../components/AppCard';
 import { ScreenHeader } from '../../components/ScreenHeader';
+import { SectionHeader } from '../../components/SectionHeader';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Screen } from '../../components/ui/Screen';
 import { colors } from '../../constants/colors';
@@ -72,7 +73,12 @@ export function PermitsScreen() {
         title="Permits"
       />
 
-      <Text style={styles.currentTruck}>Truck: {truckName}</Text>
+      <AppCard>
+        <Text style={styles.currentTruck}>Active truck</Text>
+        <Text style={styles.currentTruckName}>{truckName}</Text>
+      </AppCard>
+
+      <SectionHeader title="Truck Selector" subtitle="Switch trucks to view permit progress." />
       <View style={styles.chips}>
         {trucks.map((truck) => (
           <Pressable
@@ -92,6 +98,7 @@ export function PermitsScreen() {
         <Text style={styles.empty}>No permit rows yet for this truck.</Text>
       ) : null}
 
+      <SectionHeader title="Permit Checklist" subtitle="Each item tracks status and expiration." />
       {permits.map((permit) => {
         const requirement = permit.permit_requirements;
         const jurisdiction = requirement?.jurisdictions?.name ?? 'Unassigned jurisdiction';
@@ -124,8 +131,15 @@ export function PermitsScreen() {
 
 const styles = StyleSheet.create({
   currentTruck: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  currentTruckName: {
+    fontSize: 20,
+    fontWeight: '800',
     color: colors.textPrimary,
   },
   chips: {
@@ -165,7 +179,7 @@ const styles = StyleSheet.create({
   },
   permitName: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
     color: colors.textPrimary,
   },
   jurisdiction: {
