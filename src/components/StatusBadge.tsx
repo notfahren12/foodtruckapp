@@ -1,22 +1,47 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { colors } from '../constants/colors';
 import type { PermitStatus } from '../data/mockCompliance';
+import type { TruckPermitStatus } from '../lib/db';
 
-function toneForStatus(status: PermitStatus): { bg: string; border: string; fg: string } {
+export type BadgeStatus = PermitStatus | TruckPermitStatus;
+
+function formatStatusLabel(status: BadgeStatus): string {
+  switch (status) {
+    case 'missing':
+      return 'Missing';
+    case 'pending':
+      return 'Pending';
+    case 'current':
+      return 'Current';
+    case 'expiring_soon':
+      return 'Expiring Soon';
+    case 'expired':
+      return 'Expired';
+    default:
+      return status;
+  }
+}
+
+function toneForStatus(status: BadgeStatus): { bg: string; border: string; fg: string } {
   switch (status) {
     case 'Missing':
+    case 'missing':
+    case 'expired':
       return { bg: '#FEE2E2', border: '#FECACA', fg: colors.danger };
     case 'Uploaded':
+    case 'pending':
       return { bg: '#DBEAFE', border: '#BFDBFE', fg: colors.info };
     case 'Expiring Soon':
+    case 'expiring_soon':
       return { bg: '#FEF9C3', border: '#FEF08A', fg: colors.warning };
     case 'Current':
+    case 'current':
       return { bg: '#DCFCE7', border: '#BBF7D0', fg: colors.success };
   }
 }
 
 type StatusBadgeProps = {
-  status: PermitStatus;
+  status: BadgeStatus;
 };
 
 export function StatusBadge({ status }: StatusBadgeProps) {
@@ -24,7 +49,7 @@ export function StatusBadge({ status }: StatusBadgeProps) {
 
   return (
     <View style={[styles.badge, { backgroundColor: tone.bg, borderColor: tone.border }]}>
-      <Text style={[styles.label, { color: tone.fg }]}>{status}</Text>
+      <Text style={[styles.label, { color: tone.fg }]}>{formatStatusLabel(status)}</Text>
     </View>
   );
 }

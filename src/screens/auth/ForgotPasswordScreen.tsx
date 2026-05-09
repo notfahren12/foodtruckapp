@@ -4,21 +4,21 @@ import { AppButton } from '../../components/AppButton';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Screen } from '../../components/ui/Screen';
 import { colors } from '../../constants/colors';
-import { RootStackParamList } from '../../navigation/types';
+import { AuthStackParamList } from '../../navigation/types';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'ForgotPassword'>;
+type Props = NativeStackScreenProps<AuthStackParamList, 'ForgotPassword'>;
 
 export function ForgotPasswordScreen({ navigation }: Props) {
   return (
     <Screen>
       <ScreenHeader
-        subtitle="Password reset will connect to Supabase Auth later. For now this screen is a placeholder."
+        subtitle="Password reset can be wired to supabase.auth.resetPasswordForEmail from this screen when you’re ready."
         title="Forgot password"
       />
 
       <View style={styles.card}>
         <Text style={styles.body}>
-          You will receive an email link to reset your password once backend auth is enabled.
+          You’ll receive an email link to reset your password once recovery is hooked up on this screen.
         </Text>
       </View>
 

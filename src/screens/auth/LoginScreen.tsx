@@ -4,42 +4,62 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppButton } from '../../components/AppButton';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Screen } from '../../components/ui/Screen';
+import { useAuth } from '../../context/AuthContext';
 import { LEGAL_DISCLAIMER } from '../../constants/legal';
 import { colors } from '../../constants/colors';
-import { useAppState } from '../../core/AppProvider';
-import { RootStackParamList } from '../../navigation/types';
+import { AuthStackParamList } from '../../navigation/types';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
+type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
 export function LoginScreen({ navigation }: Props) {
-  const { hasCompletedOnboarding, signIn } = useAppState();
+  const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  function handleLogin() {
-    signIn();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: hasCompletedOnboarding ? 'MainTabs' : 'Onboarding' }],
-    });
+  async function handleLogin() {
+    setErrorMessage(null);
+    if (!email.trim() || !password) {
+      setErrorMessage('Enter your email and password.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error } = await signIn(email, password);
+      if (error) {
+        setErrorMessage(error);
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <Screen>
       <ScreenHeader
-        subtitle="Sign in with placeholder credentials. Auth wiring comes later."
+        subtitle="Sign in with your Supabase account credentials."
         title="Welcome back"
       />
+
+      {errorMessage ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>{errorMessage}</Text>
+        </View>
+      ) : null}
 
       <View style={styles.field}>
         <Text style={styles.label}>Email</Text>
         <TextInput
           autoCapitalize="none"
+          autoCorrect={false}
+          editable={!busy}
           keyboardType="email-address"
           onChangeText={setEmail}
           placeholder="you@example.com"
           placeholderTextColor={colors.textMuted}
           style={styles.input}
+          textContentType="emailAddress"
           value={email}
         />
       </View>
@@ -47,23 +67,25 @@ export function LoginScreen({ navigation }: Props) {
       <View style={styles.field}>
         <Text style={styles.label}>Password</Text>
         <TextInput
+          editable={!busy}
           onChangeText={setPassword}
           placeholder="••••••••"
           placeholderTextColor={colors.textMuted}
           secureTextEntry
           style={styles.input}
+          textContentType="password"
           value={password}
         />
       </View>
 
-      <AppButton title="Sign in" onPress={handleLogin} />
+      <AppButton disabled={busy} title={busy ? 'Signing in…' : 'Sign in'} onPress={handleLogin} />
 
       <View style={styles.row}>
-        <Pressable onPress={() => navigation.navigate('Signup')}>
-          <Text style={styles.link}>Create account</Text>
+        <Pressable disabled={busy} onPress={() => navigation.navigate('Signup')}>
+          <Text style={[styles.link, busy && styles.linkDisabled]}>Create account</Text>
         </Pressable>
-        <Pressable onPress={() => navigation.navigate('ForgotPassword')}>
-          <Text style={styles.link}>Forgot password?</Text>
+        <Pressable disabled={busy} onPress={() => navigation.navigate('ForgotPassword')}>
+          <Text style={[styles.link, busy && styles.linkDisabled]}>Forgot password?</Text>
         </Pressable>
       </View>
 
@@ -99,6 +121,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: colors.info,
+  },
+  linkDisabled: {
+    opacity: 0.45,
+  },
+  errorBanner: {
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
   },
   disclaimer: {
     fontSize: 12,

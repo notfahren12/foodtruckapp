@@ -4,29 +4,31 @@ import { AppButton } from '../../components/AppButton';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Screen } from '../../components/ui/Screen';
 import { colors } from '../../constants/colors';
-import { useAppState } from '../../core/AppProvider';
+import { useAuth } from '../../context/AuthContext';
 import { RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BusinessProfile'>;
 
 export function BusinessProfileScreen({ navigation }: Props) {
-  const { businessProfile } = useAppState();
+  const { business, profile } = useAuth();
 
   return (
     <Screen>
-      <ScreenHeader subtitle="Values come from onboarding until Supabase sync exists." title="Business profile" />
+      <ScreenHeader subtitle="Read-only preview from Supabase. Editing arrives in a future release." title="Business profile" />
 
-      {businessProfile ? (
+      {business ? (
         <>
-          <ProfileRow label="Business name" value={businessProfile.businessName || '—'} />
-          <ProfileRow label="Owner name" value={businessProfile.ownerName || '—'} />
-          <ProfileRow label="City" value={businessProfile.city || '—'} />
-          <ProfileRow label="County" value={businessProfile.county || '—'} />
-          <ProfileRow label="Food trucks" value={String(businessProfile.truckCount)} />
-          <ProfileRow label="Primary operating cities" value={businessProfile.primaryOperatingCities || '—'} />
+          <ProfileRow label="Business name" value={business.name || '—'} />
+          <ProfileRow label="Owner name" value={business.owner_name || '—'} />
+          <ProfileRow label="Phone" value={business.phone || '—'} />
+          <ProfileRow label="Email" value={business.email || '—'} />
+          <ProfileRow label="City" value={business.city || '—'} />
+          <ProfileRow label="County" value={business.county || '—'} />
         </>
       ) : (
-        <Text style={styles.empty}>No profile saved yet. Finish onboarding first.</Text>
+        <Text style={styles.empty}>
+          No business record yet.{profile?.full_name ? ` Signed in as ${profile.full_name}.` : ''} Finish onboarding first.
+        </Text>
       )}
 
       <AppButton title="Done" onPress={() => navigation.goBack()} variant="outline" />

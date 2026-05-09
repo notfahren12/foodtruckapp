@@ -2,6 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { useAuth } from '../context/AuthContext';
+import { colors } from '../constants/colors';
 import { DashboardScreen } from '../screens/dashboard/DashboardScreen';
 import { DocumentsScreen } from '../screens/documents/DocumentsScreen';
 import { InspectionsScreen } from '../screens/inspections/InspectionsScreen';
@@ -17,13 +20,12 @@ import { JurisdictionsScreen } from '../screens/settings/JurisdictionsScreen';
 import { NotificationSettingsScreen } from '../screens/settings/NotificationSettingsScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';
 import { TrucksScreen } from '../screens/settings/TrucksScreen';
-import { colors } from '../constants/colors';
-import { useAppState } from '../core/AppProvider';
-import { MainTabParamList, RootStackParamList } from './types';
+import { AuthStackParamList, MainTabParamList, RootStackParamList } from './types';
 import { navigationTheme } from './theme';
 
+const AuthStack = createNativeStackNavigator<AuthStackParamList>();
+const AppStack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
-const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function MainTabs() {
   return (
@@ -67,36 +69,87 @@ function MainTabs() {
   );
 }
 
-export function RootNavigator() {
-  const { hasCompletedOnboarding, isAuthenticated } = useAppState();
+function AuthStackNavigator() {
+  return (
+    <AuthStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <AuthStack.Screen name="Login" component={LoginScreen} />
+      <AuthStack.Screen name="Signup" component={SignupScreen} />
+      <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+    </AuthStack.Navigator>
+  );
+}
 
-  const initialRouteName = !isAuthenticated
-    ? 'Login'
-    : !hasCompletedOnboarding
-      ? 'Onboarding'
-      : 'MainTabs';
+function OnboardingFlowNavigator() {
+  return (
+    <AppStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <AppStack.Screen name="Onboarding" component={OnboardingScreen} />
+    </AppStack.Navigator>
+  );
+}
+
+function MainAppNavigator() {
+  return (
+    <AppStack.Navigator
+      initialRouteName="MainTabs"
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <AppStack.Screen name="MainTabs" component={MainTabs} />
+      <AppStack.Screen name="PermitDetail" component={PermitDetailScreen} />
+      <AppStack.Screen name="BusinessProfile" component={BusinessProfileScreen} />
+      <AppStack.Screen name="TrucksSettings" component={TrucksScreen} />
+      <AppStack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+      <AppStack.Screen name="JurisdictionsSettings" component={JurisdictionsScreen} />
+      <AppStack.Screen name="Disclaimer" component={DisclaimerScreen} />
+    </AppStack.Navigator>
+  );
+}
+
+/** Signed-in routing: onboarding until a businesses row exists, then full app tabs. */
+function SignedInNavigator() {
+  const { business } = useAuth();
+
+  if (!business) {
+    return <OnboardingFlowNavigator />;
+  }
+  return <MainAppNavigator />;
+}
+
+export function RootNavigator() {
+  const { loading, session } = useAuth();
+
+  if (loading) {
+    return (
+      <View style={styles.loadingRoot}>
+        <ActivityIndicator accessibilityLabel="Loading session" color={colors.info} size="large" />
+      </View>
+    );
+  }
 
   return (
     <NavigationContainer theme={navigationTheme}>
-      <Stack.Navigator
-        initialRouteName={initialRouteName}
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: colors.background },
-        }}
-      >
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Signup" component={SignupScreen} />
-        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-        <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-        <Stack.Screen name="MainTabs" component={MainTabs} />
-        <Stack.Screen name="PermitDetail" component={PermitDetailScreen} />
-        <Stack.Screen name="BusinessProfile" component={BusinessProfileScreen} />
-        <Stack.Screen name="TrucksSettings" component={TrucksScreen} />
-        <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
-        <Stack.Screen name="JurisdictionsSettings" component={JurisdictionsScreen} />
-        <Stack.Screen name="Disclaimer" component={DisclaimerScreen} />
-      </Stack.Navigator>
+      {!session ? <AuthStackNavigator /> : <SignedInNavigator />}
     </NavigationContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingRoot: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
+  },
+});

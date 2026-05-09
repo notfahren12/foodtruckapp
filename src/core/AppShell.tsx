@@ -3,9 +3,9 @@ import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AuthProvider } from '../context/AuthContext';
 import { colors } from '../constants/colors';
 import { RootNavigator } from '../navigation/RootNavigator';
-import { AppProvider } from './AppProvider';
 
 export function AppShell() {
   const [queryClient] = useState(() => new QueryClient());
@@ -14,10 +14,10 @@ export function AppShell() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
-          <AppProvider>
+          <AuthProvider>
             <StatusBar style="dark" />
             <RootNavigator />
-          </AppProvider>
+          </AuthProvider>
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

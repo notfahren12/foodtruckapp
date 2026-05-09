@@ -1,7 +1,10 @@
-export type RootStackParamList = {
+export type AuthStackParamList = {
   Login: undefined;
   Signup: undefined;
   ForgotPassword: undefined;
+};
+
+export type RootStackParamList = {
   Onboarding: undefined;
   MainTabs: undefined;
   PermitDetail: { permitId: string };
