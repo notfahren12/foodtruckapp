@@ -1,6 +1,32 @@
+import { Platform } from 'react-native';
+import { File } from 'expo-file-system';
 import { supabase } from './supabase';
 
+/**
+ * Expects a private Storage bucket. Files are opened via short-lived signed URLs only.
+ * (Same pattern applies to truck photos when uploaded to a private bucket.)
+ */
 const BUCKET = 'documents';
+
+/**
+ * Reads a picked/captured file into raw bytes for upload.
+ *
+ * IMPORTANT: On React Native, `fetch(fileUri).blob()` returns a Blob that
+ * `@supabase/supabase-js` uploads as **zero bytes** (the RN Blob does not expose
+ * its data the way the storage client expects). That silently produced empty
+ * uploads, which is why no files ever landed in the bucket. We read the actual
+ * bytes instead:
+ *   - native (iOS/Android): expo-file-system `File.bytes()` → Uint8Array
+ *   - web: `fetch(...).arrayBuffer()` (blob:/data: URLs work correctly there)
+ */
+async function readFileBytes(uri: string): Promise<Uint8Array> {
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri);
+    const buffer = await response.arrayBuffer();
+    return new Uint8Array(buffer);
+  }
+  return await new File(uri).bytes();
+}
 
 type UploadDocumentFileArgs = {
   businessId: string;
@@ -27,12 +53,24 @@ export async function uploadDocumentFile({
   const safeName = sanitizeFileName(fileName || 'attachment');
   const path = `${businessId}/${bucketFolder}/${documentId}/${Date.now()}_${safeName}`;
 
-  const response = await fetch(uri);
-  const blob = await response.blob();
+  let bytes: Uint8Array;
+  try {
+    bytes = await readFileBytes(uri);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { path: null, error: new Error(`Could not read the selected file (${msg}).`) };
+  }
 
-  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, {
+  if (!bytes || bytes.byteLength === 0) {
+    return {
+      path: null,
+      error: new Error('The selected file is empty. Please pick or retake the file and try again.'),
+    };
+  }
+
+  const { error } = await supabase.storage.from(BUCKET).upload(path, bytes, {
     upsert: false,
-    contentType: mimeType ?? undefined,
+    contentType: mimeType ?? 'application/octet-stream',
   });
 
   if (error) {
